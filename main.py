@@ -332,41 +332,40 @@ def parse_display_dates(series: pd.Series) -> pd.Series:
 
 
 def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
-    subset = df[df["ticket"] != ""].copy()
+    subset = df[(df["ticket"] != "") & (df["dni"] != "")].copy()
     if subset.empty:
         return []
 
-    subset["dni_limpio"] = subset["dni"].where(subset["dni"] != "", pd.NA)
+    subset["dni_ticket"] = subset["ticket"].astype(str) + "||" + subset["dni"].astype(str)
+    subset["activo_valido"] = ((subset["ip"] != "") & (subset["dni"] != "") & (subset["ticket"] != "")).astype(int)
+    subset["cesado_valido"] = ((subset["ip"] == "") & (subset["dni"] != "") & (subset["ticket"] != "")).astype(int)
+    subset["modelo_seguro_si_activo"] = (
+        (subset["modelo_seguro"] == "SI") & (subset["ip"] != "") & (subset["dni"] != "") & (subset["ticket"] != "")
+    ).astype(int)
+    subset["modelo_seguro_no_activo"] = (
+        (subset["modelo_seguro"] == "NO") & (subset["ip"] != "") & (subset["dni"] != "") & (subset["ticket"] != "")
+    ).astype(int)
     subset["fecha_conexion_dt"] = parse_display_dates(subset["fecha_conexion"])
     subset["fecha_asignacion_dt"] = parse_display_dates(subset["fecha_asignacion"])
 
     summary = (
         subset.groupby("ticket")
         .agg(
-            solicitudes_dni=("dni_limpio", lambda s: int(s.dropna().nunique())),
-            registros=("ticket", "size"),
-            activos=("estado", lambda s: int((s == "ACTIVO").sum())),
-            cesados=("estado", lambda s: int((s == "CESADO").sum())),
+            solicitudes_dni=("dni_ticket", "size"),
+            activos=("activo_valido", "sum"),
+            cesados=("cesado_valido", "sum"),
             fecha_conexion_max=("fecha_conexion_dt", "max"),
             fecha_asignacion_max=("fecha_asignacion_dt", "max"),
+            modelo_seguro_si=("modelo_seguro_si_activo", "sum"),
+            modelo_seguro_no=("modelo_seguro_no_activo", "sum"),
         )
         .reset_index()
     )
-
-    modelo_seguro_si = (
-        subset[subset["modelo_seguro"] == "SI"]
-        .groupby("ticket")["dni_limpio"]
-        .agg(lambda s: int(s.dropna().nunique()))
-    )
-    modelo_seguro_no = (
-        subset[subset["modelo_seguro"] == "NO"]
-        .groupby("ticket")["dni_limpio"]
-        .agg(lambda s: int(s.dropna().nunique()))
-    )
-
-    summary["modelo_seguro_si"] = summary["ticket"].map(modelo_seguro_si).fillna(0).astype(int)
-    summary["modelo_seguro_no"] = summary["ticket"].map(modelo_seguro_no).fillna(0).astype(int)
     summary["solicitudes_dni"] = summary["solicitudes_dni"].fillna(0).astype(int)
+    summary["activos"] = summary["activos"].fillna(0).astype(int)
+    summary["cesados"] = summary["cesados"].fillna(0).astype(int)
+    summary["modelo_seguro_si"] = summary["modelo_seguro_si"].fillna(0).astype(int)
+    summary["modelo_seguro_no"] = summary["modelo_seguro_no"].fillna(0).astype(int)
     summary["fecha_conexion_max"] = summary["fecha_conexion_max"].dt.strftime("%d/%m/%Y").fillna("")
     summary["fecha_asignacion_max"] = summary["fecha_asignacion_max"].dt.strftime("%d/%m/%Y").fillna("")
     summary = summary.sort_values(
@@ -695,6 +694,7 @@ def dashboard(
     get_current_user(request)
     df = filter_by_status(ensure_data_loaded(), status)
     df = filter_by_tipo_entorno(df, tipo_entorno)
+    ticket_df = filter_by_tipo_entorno(ensure_data_loaded(), tipo_entorno)
 
     total = len(df)
     activos = int((df["estado"] == "ACTIVO").sum()) if not df.empty else 0
@@ -728,7 +728,7 @@ def dashboard(
         "tickets_con_ip": tickets_con_ip,
         "por_area": summarize_group(df, "area"),
         "por_centro_costo": summarize_group(df, "centro_costo"),
-        "por_ticket": ticket_summary(df),
+        "por_ticket": ticket_summary(ticket_df),
     }
 
 
