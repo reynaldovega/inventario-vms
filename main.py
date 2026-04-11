@@ -366,10 +366,7 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
 
     summary["modelo_seguro_si"] = summary["ticket"].map(modelo_seguro_si).fillna(0).astype(int)
     summary["modelo_seguro_no"] = summary["ticket"].map(modelo_seguro_no).fillna(0).astype(int)
-    summary["solicitudes_dni"] = summary.apply(
-        lambda row: int(row["registros"]) if int(row["solicitudes_dni"]) == 0 else int(row["solicitudes_dni"]),
-        axis=1,
-    )
+    summary["solicitudes_dni"] = summary["solicitudes_dni"].fillna(0).astype(int)
     summary["fecha_conexion_max"] = summary["fecha_conexion_max"].dt.strftime("%d/%m/%Y").fillna("")
     summary["fecha_asignacion_max"] = summary["fecha_asignacion_max"].dt.strftime("%d/%m/%Y").fillna("")
     summary = summary.sort_values(

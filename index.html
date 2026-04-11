@@ -881,7 +881,7 @@
     function renderTickets(items) {
       renderMiniTable(
         "tablaTickets",
-        ["Ticket", "Solicitudes", "Activos", "Cesados", "Mod. seguro SI", "Pers. nuevo NO", "F. conexion max", "F. asignacion"],
+        ["Ticket", "Solicitudes ticket + DNI", "Activos", "Cesados", "Mod. seguro SI", "Pers. nuevo NO", "Fecha conexion", "Fecha asignacion"],
         items.map(item => `
           <tr>
             <td>${item.ticket}</td>
