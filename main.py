@@ -97,16 +97,10 @@ async def upload_file(file: UploadFile = File(...)):
 def cargar_data():
     global df_global
 
-    try:
-        if df_global is not None:
-            return df_global
+    if df_global is not None:
+        return df_global
 
-        df = pd.read_excel("BASE GENERAL VMS ASIGNADA_prueba 13xlsx(BASE CONEXIO AGENTES TTO).xlsx")
-        return procesar_df(df)
-
-    except Exception as e:
-        print("🔥 ERROR cargar_data:", e)
-        return pd.DataFrame()
+    return pd.DataFrame()  # 👈 vacío si no hay upload
 
 
 # 📡 ENDPOINTS
