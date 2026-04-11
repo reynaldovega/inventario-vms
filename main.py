@@ -2,6 +2,7 @@ from pathlib import Path
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import secrets
@@ -10,7 +11,7 @@ import unicodedata
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 app = FastAPI(title="Inventario VMS")
 
@@ -453,6 +454,135 @@ def build_assignment_pivot(df: pd.DataFrame, limit: int = 200) -> list[dict]:
     return grouped.to_dict(orient="records")
 
 
+def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
+    scoped = remote_assignments_only(df).copy()
+    if scoped.empty:
+        return pd.DataFrame(
+            columns=[
+                "estado",
+                "tipo_entorno",
+                "arquitectura",
+                "dni",
+                "nombre_completo",
+                "ip",
+                "hostname",
+                "ticket",
+                "area",
+                "centro_costo",
+                "fecha_conexion",
+                "fecha_asignacion",
+                "modelo_seguro",
+            ]
+        )
+
+    export_df = pd.DataFrame(
+        {
+            "estado": scoped["estado"],
+            "tipo_entorno": scoped["tipo_entorno"],
+            "arquitectura": scoped["so"],
+            "dni": scoped["dni"],
+            "nombre_completo": scoped["nombre_completo"],
+            "ip": scoped["ip"],
+            "hostname": scoped["hostname"],
+            "ticket": scoped["ticket"],
+            "area": scoped["area"],
+            "centro_costo": scoped["centro_costo"],
+            "fecha_conexion": scoped["fecha_conexion"],
+            "fecha_asignacion": scoped["fecha_asignacion"],
+            "modelo_seguro": scoped["modelo_seguro"],
+        }
+    )
+    return export_df
+
+
+def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
+    scoped = df.copy()
+    return pd.DataFrame(
+        {
+            "estado": scoped["estado"] if "estado" in scoped else "",
+            "tipo_entorno": scoped["tipo_entorno"] if "tipo_entorno" in scoped else "",
+            "arquitectura": scoped["so"] if "so" in scoped else "",
+            "dni": scoped["dni"] if "dni" in scoped else "",
+            "nombre_completo": scoped["nombre_completo"] if "nombre_completo" in scoped else "",
+            "ip": scoped["ip"] if "ip" in scoped else "",
+            "hostname": scoped["hostname"] if "hostname" in scoped else "",
+            "ticket": scoped["ticket"] if "ticket" in scoped else "",
+            "area": scoped["area"] if "area" in scoped else "",
+            "centro_costo": scoped["centro_costo"] if "centro_costo" in scoped else "",
+            "fecha_conexion": scoped["fecha_conexion"] if "fecha_conexion" in scoped else "",
+            "fecha_asignacion": scoped["fecha_asignacion"] if "fecha_asignacion" in scoped else "",
+            "modelo_seguro": scoped["modelo_seguro"] if "modelo_seguro" in scoped else "",
+        }
+    )
+
+
+def get_dashboard_scoped_df(tipo_entorno: str, status: str) -> pd.DataFrame:
+    df = filter_by_status(ensure_data_loaded(), status)
+    return filter_by_tipo_entorno(df, tipo_entorno)
+
+
+def get_search_scoped_df(q: str, tipo_entorno: str, status: str) -> pd.DataFrame:
+    df = get_dashboard_scoped_df(tipo_entorno, status)
+    return smart_search(df, q) if q else df.copy()
+
+
+def get_card_export_dataframe(segment: str, q: str, tipo_entorno: str, status: str) -> pd.DataFrame:
+    dashboard_df = get_dashboard_scoped_df(tipo_entorno, status)
+    search_df = get_search_scoped_df(q, tipo_entorno, status)
+
+    if segment == "asignados_servicio":
+        scoped = dashboard_df[dashboard_df["ip"] != ""].copy()
+        if not scoped.empty:
+            scoped["clasificacion_asignacion"] = scoped.apply(classify_assignment, axis=1)
+            scoped = scoped[scoped["clasificacion_asignacion"] == "ASIGNADO_SERVICIO"]
+        return build_standard_export(scoped)
+
+    if segment == "sede_camana":
+        scoped = dashboard_df[dashboard_df["ip"] != ""].copy()
+        if not scoped.empty:
+            scoped["clasificacion_asignacion"] = scoped.apply(classify_assignment, axis=1)
+            scoped = scoped[scoped["clasificacion_asignacion"] == "SEDE_CAMANA"]
+        return build_standard_export(scoped)
+
+    if segment == "sede_chota":
+        scoped = dashboard_df[dashboard_df["ip"] != ""].copy()
+        if not scoped.empty:
+            scoped["clasificacion_asignacion"] = scoped.apply(classify_assignment, axis=1)
+            scoped = scoped[scoped["clasificacion_asignacion"] == "SEDE_CHOTA"]
+        return build_standard_export(scoped)
+
+    if segment == "sede_centro_civico":
+        scoped = dashboard_df[dashboard_df["ip"] != ""].copy()
+        if not scoped.empty:
+            scoped["clasificacion_asignacion"] = scoped.apply(classify_assignment, axis=1)
+            scoped = scoped[scoped["clasificacion_asignacion"] == "SEDE_CENTRO_CIVICO"]
+        return build_standard_export(scoped)
+
+    if segment == "activos_excluidos":
+        scoped = dashboard_df[dashboard_df["ip"] != ""].copy()
+        if not scoped.empty:
+            scoped["clasificacion_asignacion"] = scoped.apply(classify_assignment, axis=1)
+            scoped = scoped[scoped["clasificacion_asignacion"] == "EXCLUIDO"]
+        return build_standard_export(scoped)
+
+    if segment == "resultados":
+        return build_standard_export(search_df)
+
+    if segment == "total_registros":
+        return build_standard_export(dashboard_df)
+
+    if segment == "total_activos":
+        return build_standard_export(dashboard_df[dashboard_df["estado"] == "ACTIVO"])
+
+    if segment == "total_cesados":
+        return build_standard_export(dashboard_df[dashboard_df["estado"] == "CESADO"])
+
+    if segment == "search_asignaciones_remotas":
+        return build_remote_assignments_export(search_df)
+
+    return pd.DataFrame()
+
+
 @app.get("/")
 def serve_index():
     return FileResponse(BASE_DIR / "index.html")
@@ -600,6 +730,59 @@ def search_pivot(
     df = filter_by_tipo_entorno(df, tipo_entorno)
     result = smart_search(df, q) if q else df.copy()
     return build_assignment_pivot(result, limit=limit)
+
+
+@app.get("/export-search-assignments")
+def export_search_assignments(
+    request: Request,
+    q: str = Query(default=""),
+    tipo_entorno: str = Query(default="todos"),
+    status: str = Query(default="todos"),
+):
+    require_roles(request, {"admin"})
+    df = filter_by_status(ensure_data_loaded(), status)
+    df = filter_by_tipo_entorno(df, tipo_entorno)
+    result = smart_search(df, q) if q else df.copy()
+    export_df = build_remote_assignments_export(result)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name="asignaciones_remotas")
+    output.seek(0)
+
+    filename = "asignaciones_remotas_filtradas.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@app.get("/export-card")
+def export_card(
+    request: Request,
+    segment: str = Query(...),
+    q: str = Query(default=""),
+    tipo_entorno: str = Query(default="todos"),
+    status: str = Query(default="todos"),
+):
+    require_roles(request, {"admin"})
+    export_df = get_card_export_dataframe(segment, q, tipo_entorno, status)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name="datos")
+    output.seek(0)
+
+    safe_segment = normalize_text(segment).replace(" ", "_") or "export"
+    filename = f"{safe_segment}.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @app.get("/meta")

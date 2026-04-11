@@ -242,6 +242,17 @@
       box-shadow: var(--shadow);
     }
 
+    .card.exportable {
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .card.exportable:hover {
+      transform: translateY(-2px);
+      border-color: rgba(30, 111, 92, 0.5);
+      box-shadow: 0 16px 35px rgba(30, 111, 92, 0.12);
+    }
+
     .card span {
       display: block;
       font-size: 0.82rem;
@@ -513,25 +524,25 @@
       </div>
 
       <div class="cards">
-        <div class="card"><span>Asignados servicio</span><strong id="asignadosServicio">0</strong></div>
-        <div class="card"><span>Sede Camana</span><strong id="sedeCamana">0</strong></div>
-        <div class="card"><span>Sede Chota</span><strong id="sedeChota">0</strong></div>
-        <div class="card"><span>Centro Civico</span><strong id="sedeCentroCivico">0</strong></div>
-        <div class="card"><span>Resultados</span><strong id="totalResultados">0</strong></div>
+        <div class="card" data-export-segment="asignados_servicio"><span>Asignados servicio</span><strong id="asignadosServicio">0</strong></div>
+        <div class="card" data-export-segment="sede_camana"><span>Sede Camana</span><strong id="sedeCamana">0</strong></div>
+        <div class="card" data-export-segment="sede_chota"><span>Sede Chota</span><strong id="sedeChota">0</strong></div>
+        <div class="card" data-export-segment="sede_centro_civico"><span>Centro Civico</span><strong id="sedeCentroCivico">0</strong></div>
+        <div class="card" data-export-segment="resultados"><span>Resultados</span><strong id="totalResultados">0</strong></div>
       </div>
 
       <div class="cards">
-        <div class="card"><span>Registros base</span><strong id="totalRegistros">0</strong></div>
-        <div class="card"><span>Activos con IP</span><strong id="totalActivos">0</strong></div>
-        <div class="card"><span>Cesados</span><strong id="totalCesados">0</strong></div>
+        <div class="card" data-export-segment="total_registros"><span>Registros base</span><strong id="totalRegistros">0</strong></div>
+        <div class="card" data-export-segment="total_activos"><span>Activos con IP</span><strong id="totalActivos">0</strong></div>
+        <div class="card" data-export-segment="total_cesados"><span>Cesados</span><strong id="totalCesados">0</strong></div>
         <div class="card"><span>Tickets unicos</span><strong id="ticketsUnicos">0</strong></div>
-        <div class="card"><span>Excluidos operativos</span><strong id="activosExcluidos">0</strong></div>
+        <div class="card" data-export-segment="activos_excluidos"><span>Excluidos operativos</span><strong id="activosExcluidos">0</strong></div>
       </div>
     </section>
 
     <section class="search-insights hidden" id="searchInsights">
       <div class="cards">
-        <div class="card"><span>Asignaciones remotas</span><strong id="searchAsignacionesRemotas">0</strong></div>
+        <div class="card" data-export-segment="search_asignaciones_remotas"><span>Asignaciones remotas</span><strong id="searchAsignacionesRemotas">0</strong></div>
         <div class="card"><span>IPs unicas</span><strong id="searchIpsUnicas">0</strong></div>
         <div class="card"><span>DNI unicos</span><strong id="searchDniUnicos">0</strong></div>
         <div class="card"><span>Filtro TS/VMS</span><strong id="searchModoActual">-</strong></div>
@@ -545,6 +556,9 @@
           <h3>Tabla dinamica de asignaciones remotas</h3>
           <p>Conteo de IPs por area y centro de costo, solo para usuarios con DNI e IP valida.</p>
         </div>
+        <button class="secondary hidden" id="exportAssignmentsButton" onclick="descargarAsignacionesRemotas()">
+          Descargar Excel
+        </button>
       </div>
       <div class="table-wrap">
         <table id="tablaPivot"></table>
@@ -609,6 +623,14 @@
     let currentResults = [];
     let currentUser = null;
 
+    function currentFilters() {
+      return {
+        q: document.getElementById("search").value.trim(),
+        tipo_entorno: document.getElementById("tipoEntornoFilter").value,
+        status: document.getElementById("statusFilter").value,
+      };
+    }
+
     async function jsonFetch(url, options = {}) {
       const headers = { ...(options.headers || {}) };
       if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
@@ -653,6 +675,7 @@
       const note = document.getElementById("uploadPermissionNote");
       const sessionInfo = document.getElementById("sessionInfo");
       const logoutButton = document.getElementById("logoutButton");
+      const exportButton = document.getElementById("exportAssignmentsButton");
 
       if (!currentUser) {
         uploadButton.disabled = true;
@@ -660,10 +683,16 @@
         note.textContent = "";
         sessionInfo.textContent = "Sin sesion iniciada";
         logoutButton.classList.add("hidden");
+        exportButton.classList.add("hidden");
+        document.querySelectorAll("[data-export-segment]").forEach((card) => {
+          card.classList.remove("exportable");
+          card.removeAttribute("title");
+        });
         return;
       }
 
       const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
+      const canExport = currentUser.role === "admin";
       uploadButton.disabled = !canUpload;
       fileInput.disabled = !canUpload;
       note.textContent = canUpload
@@ -671,6 +700,15 @@
         : "Modo lectura: este rol no puede subir ni modificar la base.";
       sessionInfo.textContent = `${currentUser.display_name} | Rol: ${roleLabel(currentUser.role)}`;
       logoutButton.classList.remove("hidden");
+      exportButton.classList.toggle("hidden", !canExport);
+      document.querySelectorAll("[data-export-segment]").forEach((card) => {
+        card.classList.toggle("exportable", canExport);
+        if (canExport) {
+          card.setAttribute("title", "Haz clic para descargar este grupo en Excel");
+        } else {
+          card.removeAttribute("title");
+        }
+      });
     }
 
     async function loadSession() {
@@ -717,6 +755,63 @@
       renderCentros([]);
       renderTickets([]);
       setSearchSectionVisible(false);
+    }
+
+    async function descargarAsignacionesRemotas() {
+      if (!currentUser || currentUser.role !== "admin") {
+        alert("Solo el administrador puede descargar este Excel.");
+        return;
+      }
+
+      const query = document.getElementById("search").value.trim();
+      const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
+      const status = document.getElementById("statusFilter").value;
+      const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
+      const response = await fetch(`${apiBase}/export-search-assignments?${params.toString()}`, {
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        alert("No se pudo descargar el Excel filtrado.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "asignaciones_remotas_filtradas.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
+    async function descargarSegmento(segment) {
+      if (!currentUser || currentUser.role !== "admin") {
+        alert("Solo el administrador puede descargar este Excel.");
+        return;
+      }
+
+      const params = new URLSearchParams({ segment, ...currentFilters() });
+      const response = await fetch(`${apiBase}/export-card?${params.toString()}`, {
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        alert("No se pudo descargar el Excel de esta tarjeta.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${segment}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     }
 
     function renderMainTable(data) {
@@ -957,6 +1052,15 @@
 
     document.getElementById("tipoEntornoFilter").addEventListener("change", () => {
       buscar();
+    });
+
+    document.querySelectorAll("[data-export-segment]").forEach((card) => {
+      card.addEventListener("click", () => {
+        if (!card.classList.contains("exportable")) {
+          return;
+        }
+        descargarSegmento(card.dataset.exportSegment);
+      });
     });
 
     loadSession();
