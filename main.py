@@ -16,24 +16,17 @@ app.add_middleware(
 df_global = None
 
 
-# 🔧 PROCESAR DATA (FIX DEFINITIVO)
+# 🔧 PROCESAR DATA
 def procesar_df(df):
     try:
         df = df.fillna("")
 
         print("📊 COLUMNAS:", list(df.columns))
 
-        # 🔥 detectar columna IP
-        col_ip = None
-        for col in df.columns:
-            if "ip" in col.lower() or "ts" in col.lower():
-                col_ip = col
-                break
+        # 🔥 FORZAR PRIMERA COLUMNA COMO IP
+        df["ip"] = df.iloc[:, 0].astype(str)
 
-        # 🔥 FIX CLAVE: fallback a columna 0
-        df["ip"] = df[col_ip] if col_ip else df.iloc[:, 0]
-
-        # 🔒 columnas seguras
+        # 🔒 función segura
         def safe_col(index):
             return df.iloc[:, index] if index < len(df.columns) else ""
 
@@ -58,12 +51,13 @@ def procesar_df(df):
             df.get("2°APELLIDO", "").astype(str)
         ).str.strip()
 
-        # 🔥 limpiar IP vacía (AHORA SÍ FUNCIONA)
+        # 🔥 limpiar IP vacía
         df = df[df["ip"].astype(str).str.strip() != ""]
 
         df["estado"] = "ACTIVO"
 
         print("✅ FILAS PROCESADAS:", len(df))
+        print(df.head(5))  # 👈 DEBUG
 
         return df
 
@@ -97,7 +91,7 @@ def cargar_data():
     if df_global is not None:
         return df_global
 
-    return pd.DataFrame()  # 👈 vacío si no hay upload
+    return pd.DataFrame()
 
 
 # 📡 ENDPOINTS
