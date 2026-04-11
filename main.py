@@ -544,6 +544,63 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
+    cleaned_ticket = clean_value(ticket)
+    if not cleaned_ticket:
+        return {"ticket": "", "resumen": {}, "filas": []}
+
+    df = filter_by_tipo_entorno(ensure_data_loaded(), tipo_entorno)
+    scoped = df[df["ticket"] == cleaned_ticket].copy()
+    if scoped.empty:
+        return {
+            "ticket": cleaned_ticket,
+            "resumen": {
+                "filas_totales": 0,
+                "solicitudes_ticket_dni": 0,
+                "activos": 0,
+                "cesados": 0,
+            },
+            "filas": [],
+        }
+
+    scoped["cuenta_solicitud"] = ((scoped["ticket"] != "") & (scoped["dni"] != "")).astype(int)
+    scoped["cuenta_activo"] = ((scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] != "")).astype(int)
+    scoped["cuenta_cesado"] = ((scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] == "")).astype(int)
+    scoped["modelo_seguro_activo_si"] = (
+        (scoped["modelo_seguro"] == "SI") & (scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] != "")
+    ).astype(int)
+    scoped["modelo_seguro_activo_no"] = (
+        (scoped["modelo_seguro"] == "NO") & (scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] != "")
+    ).astype(int)
+    scoped["motivo_conteo"] = scoped.apply(
+        lambda row: "ACTIVO"
+        if int(row["cuenta_activo"]) == 1
+        else ("CESADO" if int(row["cuenta_cesado"]) == 1 else "NO CUENTA"),
+        axis=1,
+    )
+
+    filas = build_standard_export(scoped)
+    filas["cuenta_solicitud"] = scoped["cuenta_solicitud"].astype(int).values
+    filas["cuenta_activo"] = scoped["cuenta_activo"].astype(int).values
+    filas["cuenta_cesado"] = scoped["cuenta_cesado"].astype(int).values
+    filas["motivo_conteo"] = scoped["motivo_conteo"].values
+
+    resumen = {
+        "filas_totales": int(len(scoped)),
+        "solicitudes_ticket_dni": int(((scoped["ticket"] != "") & (scoped["dni"] != "")).sum()),
+        "activos": int(scoped["cuenta_activo"].sum()),
+        "cesados": int(scoped["cuenta_cesado"].sum()),
+        "modelo_seguro_si_activo": int(scoped["modelo_seguro_activo_si"].sum()),
+        "modelo_seguro_no_activo": int(scoped["modelo_seguro_activo_no"].sum()),
+    }
+
+    return {
+        "ticket": cleaned_ticket,
+        "resumen": resumen,
+        "filas": filas.to_dict(orient="records"),
+    }
+
+
 def get_dashboard_scoped_df(tipo_entorno: str, status: str) -> pd.DataFrame:
     df = filter_by_status(ensure_data_loaded(), status)
     return filter_by_tipo_entorno(df, tipo_entorno)
@@ -812,6 +869,16 @@ def export_card(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+
+@app.get("/ticket-audit")
+def ticket_audit(
+    request: Request,
+    ticket: str = Query(...),
+    tipo_entorno: str = Query(default="todos"),
+):
+    get_current_user(request)
+    return build_ticket_audit(ticket, tipo_entorno)
 
 
 @app.get("/meta")

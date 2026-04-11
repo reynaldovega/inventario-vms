@@ -550,6 +550,28 @@
       </div>
     </section>
 
+    <section class="panel hidden" id="ticketAuditSection" style="margin-top: 22px;">
+      <div class="section-head">
+        <div>
+          <h3>Auditoria por ticket</h3>
+          <p id="ticketAuditInfo">Revision detallada de conteo por ticket.</p>
+        </div>
+      </div>
+      <div class="cards" style="margin-top: 0;">
+        <div class="card"><span>Filas totales</span><strong id="auditFilasTotales">0</strong></div>
+        <div class="card"><span>Solicitudes ticket + DNI</span><strong id="auditSolicitudes">0</strong></div>
+        <div class="card"><span>Activos</span><strong id="auditActivos">0</strong></div>
+        <div class="card"><span>Cesados</span><strong id="auditCesados">0</strong></div>
+        <div class="card"><span>Modelo seguro SI activos</span><strong id="auditModeloSi">0</strong></div>
+      </div>
+      <div class="cards" style="margin-top: 10px;">
+        <div class="card"><span>Modelo seguro NO activos</span><strong id="auditModeloNo">0</strong></div>
+      </div>
+      <div class="table-wrap" style="margin-top: 18px;">
+        <table id="tablaTicketAudit"></table>
+      </div>
+    </section>
+
     <section class="grid hidden" id="searchResultsSection">
       <div class="panel">
         <div class="section-head">
@@ -922,6 +944,54 @@
       table.innerHTML = head + rows;
     }
 
+    function renderTicketAudit(data) {
+      const section = document.getElementById("ticketAuditSection");
+      if (!data || !data.ticket) {
+        section.classList.add("hidden");
+        document.getElementById("tablaTicketAudit").innerHTML = "";
+        return;
+      }
+
+      section.classList.remove("hidden");
+      document.getElementById("ticketAuditInfo").textContent = `Revision del ticket ${data.ticket}`;
+      setText("auditFilasTotales", data.resumen.filas_totales);
+      setText("auditSolicitudes", data.resumen.solicitudes_ticket_dni);
+      setText("auditActivos", data.resumen.activos);
+      setText("auditCesados", data.resumen.cesados);
+      setText("auditModeloSi", data.resumen.modelo_seguro_si_activo);
+      setText("auditModeloNo", data.resumen.modelo_seguro_no_activo);
+
+      const table = document.getElementById("tablaTicketAudit");
+      if (!data.filas.length) {
+        table.innerHTML = `<tr><td class="empty">No hay filas para auditar en este ticket.</td></tr>`;
+        return;
+      }
+
+      const headers = [
+        "DNI", "IP", "Hostname", "Arquitectura", "Area", "Centro de costo",
+        "Fecha conexion", "Fecha asignacion", "Modelo seguro", "Cuenta solicitud", "Cuenta activo", "Cuenta cesado", "Motivo"
+      ];
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const rows = data.filas.map(item => `
+        <tr>
+          <td>${item.dni || "-"}</td>
+          <td>${item.ip || "-"}</td>
+          <td>${item.hostname || "-"}</td>
+          <td>${item.arquitectura || "-"}</td>
+          <td>${item.area || "-"}</td>
+          <td>${item.centro_costo || "-"}</td>
+          <td>${item.fecha_conexion || "-"}</td>
+          <td>${item.fecha_asignacion || "-"}</td>
+          <td>${item.modelo_seguro || "-"}</td>
+          <td>${item.cuenta_solicitud}</td>
+          <td>${item.cuenta_activo}</td>
+          <td>${item.cuenta_cesado}</td>
+          <td>${item.motivo_conteo}</td>
+        </tr>
+      `).join("");
+      table.innerHTML = head + rows;
+    }
+
     function setSearchSectionVisible(visible) {
       document.getElementById("searchInsights").classList.toggle("hidden", !visible);
       document.getElementById("pivotSection").classList.toggle("hidden", !visible);
@@ -976,6 +1046,7 @@
       document.getElementById("resultsInfo").textContent = "Escribe una busqueda para ver resultados.";
       document.getElementById("tablaResultados").innerHTML = "";
       document.getElementById("tablaPivot").innerHTML = "";
+      renderTicketAudit(null);
       renderAreas([]);
       renderCentros([]);
       renderTickets([]);
@@ -1034,6 +1105,17 @@
       document.getElementById("resultsInfo").textContent = query
         ? `Busqueda activa: ${query}`
         : "Mostrando los registros segun los filtros seleccionados.";
+      const auditTicket = query && !query.includes(",") ? query.trim() : "";
+      if (auditTicket) {
+        try {
+          const audit = await jsonFetch(`${apiBase}/ticket-audit?ticket=${encodeURIComponent(auditTicket)}&tipo_entorno=${encodeURIComponent(tipoEntorno)}`);
+          renderTicketAudit(audit);
+        } catch (_) {
+          renderTicketAudit(null);
+        }
+      } else {
+        renderTicketAudit(null);
+      }
       await refreshSearchDashboard(query, tipoEntorno, status);
       await refreshDashboard();
     }
