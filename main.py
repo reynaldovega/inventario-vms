@@ -24,7 +24,7 @@ def procesar_df(df):
         print("📊 COLUMNAS:", list(df.columns))
 
         # 🔥 FORZAR PRIMERA COLUMNA COMO IP
-        df["ip"] = df.iloc[:, 0].astype(str)
+        df["ip"] = df.iloc[:, 0].astype(str).str.strip()
 
         # 🔒 función segura
         def safe_col(index):
@@ -52,12 +52,12 @@ def procesar_df(df):
         ).str.strip()
 
         # 🔥 limpiar IP vacía
-        df = df[df["ip"].astype(str).str.strip() != ""]
+        df = df[df["ip"] != ""]
 
         df["estado"] = "ACTIVO"
 
         print("✅ FILAS PROCESADAS:", len(df))
-        print(df.head(5))  # 👈 DEBUG
+        print(df.head(5))
 
         return df
 
@@ -72,7 +72,12 @@ async def upload_file(file: UploadFile = File(...)):
     global df_global
 
     try:
-        df = pd.read_excel(file.file)
+        # 🔥 SIN header=1
+        df = pd.read_excel(file.file, dtype=str)
+        df.columns = df.columns.str.strip()
+
+        print("COLUMNAS REALES:", df.columns.tolist())
+
         df_global = procesar_df(df)
 
         print("📥 DATA CARGADA:", len(df_global))
