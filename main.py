@@ -1,10 +1,19 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import unicodedata
+
 import pandas as pd
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
-app = FastAPI()
+app = FastAPI(title="Inventario VMS")
 
-# 🔥 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,124 +22,607 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-df_global = None
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_EXCEL = next(BASE_DIR.glob("*.xlsx"), None)
+SESSION_COOKIE = "inventario_vms_session"
+DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
+SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
+
+df_global = pd.DataFrame()
+current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
+
+USERS = {
+    "admin": {
+        "password": "Sayayin*rey25*",
+        "role": "admin",
+        "display_name": "Administrador",
+    },
+    "miriam.gamboa": {
+        "password": "123456",
+        "role": "ti",
+        "display_name": "Miriam Gamboa",
+    },
+    "invitado": {
+        "password": "lectura2026",
+        "role": "invitado",
+        "display_name": "Invitado",
+    },
+}
 
 
-# 🔧 PROCESAR DATA
-def procesar_df(df):
-    try:
-        df = df.fillna("")
-
-        print("📊 COLUMNAS:", list(df.columns))
-
-        # 🔥 FORZAR PRIMERA COLUMNA COMO IP
-        df["ip"] = df.iloc[:, 0].astype(str).str.strip()
-
-        # 🔒 función segura
-        def safe_col(index):
-            return df.iloc[:, index] if index < len(df.columns) else ""
-
-        df["so"] = safe_col(1)
-        df["dni"] = safe_col(5)
-        df["area"] = safe_col(3)
-        df["centro_costo"] = safe_col(4)
-        df["hostname"] = safe_col(16)
-        df["ticket"] = safe_col(23)
-        df["fecha_asignacion"] = safe_col(25)
-
-        # 📅 fecha
-        df["fecha_asignacion"] = pd.to_datetime(
-            df["fecha_asignacion"], errors="coerce"
-        ).dt.strftime("%d/%m/%Y")
-
-        # 👤 nombre
-        df["nombre_completo"] = (
-            df.get("1°NOMBRE", "").astype(str) + " " +
-            df.get("2°NOMBRE", "").astype(str) + " " +
-            df.get("1°APELLIDO", "").astype(str) + " " +
-            df.get("2°APELLIDO", "").astype(str)
-        ).str.strip()
-
-        # 🔥 limpiar IP vacía
-        df = df[df["ip"] != ""]
-
-        df["estado"] = "ACTIVO"
-
-        print("✅ FILAS PROCESADAS:", len(df))
-        print(df.head(5))
-
-        return df
-
-    except Exception as e:
-        print("🔥 ERROR procesar_df:", e)
-        return pd.DataFrame()
-
-
-# 📥 SUBIR EXCEL
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    global df_global
+def load_users_from_env() -> dict:
+    raw_users = os.getenv("APP_USERS_JSON", "").strip()
+    if not raw_users:
+        return USERS
 
     try:
-        # 🔥 SIN header=1
-        df = pd.read_excel(file.file, dtype=str)
-        df.columns = df.columns.str.strip()
+        parsed = json.loads(raw_users)
+    except json.JSONDecodeError:
+        return USERS
 
-        print("COLUMNAS REALES:", df.columns.tolist())
+    loaded_users = {}
+    if not isinstance(parsed, list):
+        return USERS
 
-        df_global = procesar_df(df)
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        username = str(item.get("username", "")).strip().lower()
+        password = str(item.get("password", ""))
+        role = str(item.get("role", "")).strip().lower()
+        display_name = str(item.get("display_name", "")).strip() or username
 
-        print("📥 DATA CARGADA:", len(df_global))
+        if not username or not password or role not in {"admin", "ti", "invitado"}:
+            continue
 
-        return {"mensaje": "Archivo cargado correctamente"}
+        loaded_users[username] = {
+            "password": password,
+            "role": role,
+            "display_name": display_name,
+        }
 
-    except Exception as e:
-        print("🔥 ERROR UPLOAD:", e)
-        return {"mensaje": "Error al procesar archivo"}
+    return loaded_users or USERS
 
 
-# 📊 CARGAR DATA
-def cargar_data():
+USERS = load_users_from_env()
+
+
+def normalize_text(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+
+    text = str(value).replace(" ", " ").strip()
+    if text.lower() == "nan":
+        return ""
+
+    text = " ".join(text.split())
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+
+def clean_value(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+
+    text = str(value).replace(" ", " ").strip()
+    if text.lower() == "nan":
+        return ""
+
+    return " ".join(text.split())
+
+
+def sign_data(payload: str) -> str:
+    return hmac.new(SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def create_session_token(username: str) -> str:
+    payload = {
+        "u": username,
+        "n": secrets.token_hex(8),
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"))
+    payload_b64 = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("utf-8")
+    signature = sign_data(payload_b64)
+    return f"{payload_b64}.{signature}"
+
+
+def read_session_token(token: str | None) -> dict | None:
+    if not token or "." not in token:
+        return None
+
+    payload_b64, signature = token.rsplit(".", 1)
+    if not hmac.compare_digest(sign_data(payload_b64), signature):
+        return None
+
+    try:
+        payload_json = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+        payload = json.loads(payload_json)
+    except Exception:
+        return None
+
+    username = payload.get("u", "")
+    if username not in USERS:
+        return None
+    return {"username": username, **USERS[username]}
+
+
+def get_current_user(request: Request) -> dict:
+    token = request.cookies.get(SESSION_COOKIE)
+    user = read_session_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    return user
+
+
+def require_roles(request: Request, allowed_roles: set[str]) -> dict:
+    user = get_current_user(request)
+    if user["role"] not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Sin permisos para esta accion")
+    return user
+
+
+def safe_col(df: pd.DataFrame, index: int) -> pd.Series:
+    if index < len(df.columns):
+        return df.iloc[:, index].fillna("").astype(str)
+    return pd.Series([""] * len(df), index=df.index, dtype="object")
+
+
+def format_date(series: pd.Series) -> pd.Series:
+    parsed = pd.to_datetime(series, errors="coerce")
+    formatted = parsed.dt.strftime("%d/%m/%Y")
+    return formatted.fillna("")
+
+
+def compact_name(parts: list[pd.Series]) -> pd.Series:
+    joined = pd.concat(parts, axis=1).fillna("")
+    return joined.apply(
+        lambda row: " ".join(part for part in row.astype(str).map(clean_value) if part),
+        axis=1,
+    )
+
+
+def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
+    raw = df.copy().fillna("")
+    raw.columns = [clean_value(col) for col in raw.columns]
+
+    processed = pd.DataFrame()
+    processed["ip"] = safe_col(raw, 0).map(clean_value)
+    processed["so"] = safe_col(raw, 1).map(clean_value)
+    processed["area"] = safe_col(raw, 3).map(clean_value)
+    processed["centro_costo"] = safe_col(raw, 4).map(clean_value)
+    processed["dni"] = safe_col(raw, 5).map(clean_value)
+    processed["tipo_entorno"] = safe_col(raw, 14).map(clean_value)
+    processed["hostname"] = safe_col(raw, 16).map(clean_value)
+    processed["ticket"] = safe_col(raw, 23).map(clean_value)
+    processed["fecha_conexion"] = format_date(safe_col(raw, 24))
+    processed["fecha_asignacion"] = format_date(safe_col(raw, 25))
+    processed["modelo_seguro"] = safe_col(raw, 26).map(clean_value)
+
+    processed["nombre_completo"] = compact_name(
+        [
+            raw.get("1?NOMBRE", pd.Series([""] * len(raw), index=raw.index)),
+            raw.get("2?NOMBRE", pd.Series([""] * len(raw), index=raw.index)),
+            raw.get("1?APELLIDO", pd.Series([""] * len(raw), index=raw.index)),
+            raw.get("2?APELLIDO", pd.Series([""] * len(raw), index=raw.index)),
+        ]
+    )
+
+    processed["estado"] = processed["ip"].apply(lambda ip: "ACTIVO" if ip else "CESADO")
+    processed["modelo_seguro"] = processed["modelo_seguro"].apply(
+        lambda value: "SI"
+        if normalize_text(value) == "si"
+        else ("NO" if normalize_text(value) == "no" else "")
+    )
+    processed["es_agente_nuevo"] = processed["modelo_seguro"].apply(
+        lambda value: "SI" if value == "NO" else "NO"
+    )
+
+    processed["search_blob"] = processed.apply(
+        lambda row: " ".join(
+            normalize_text(row[field])
+            for field in [
+                "dni",
+                "nombre_completo",
+                "ip",
+                "tipo_entorno",
+                "hostname",
+                "ticket",
+                "area",
+                "centro_costo",
+                "estado",
+                "fecha_conexion",
+                "fecha_asignacion",
+            ]
+        ),
+        axis=1,
+    )
+
+    return processed.fillna("")
+
+
+def load_dataframe_from_excel(file_source) -> pd.DataFrame:
+    df = pd.read_excel(file_source, dtype=str)
+    return procesar_df(df)
+
+
+def ensure_data_loaded() -> pd.DataFrame:
     global df_global
-
-    if df_global is not None:
+    if not df_global.empty:
         return df_global
 
-    return pd.DataFrame()
+    if DEFAULT_EXCEL and DEFAULT_EXCEL.exists():
+        df_global = load_dataframe_from_excel(DEFAULT_EXCEL)
+
+    return df_global
 
 
-# 📡 ENDPOINTS
-@app.get("/vms")
-def get_vms():
-    try:
-        df = cargar_data()
-        print("📊 VMS:", len(df))
-        return df.to_dict(orient="records")
+def filter_by_status(df: pd.DataFrame, status: str) -> pd.DataFrame:
+    normalized = normalize_text(status)
+    if normalized in {"activo", "activos"}:
+        return df[df["estado"] == "ACTIVO"]
+    if normalized in {"cesado", "cesados"}:
+        return df[df["estado"] == "CESADO"]
+    return df
 
-    except Exception as e:
-        print("🔥 ERROR /vms:", e)
+
+def smart_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    normalized_query = normalize_text(query)
+    if not normalized_query:
+        return df
+
+    raw_terms = [chunk.strip() for chunk in normalized_query.split(",") if chunk.strip()]
+    terms = []
+    for chunk in raw_terms:
+        parts = [term for term in chunk.split() if term]
+        if parts:
+            terms.append(parts)
+
+    if not terms:
+        return df
+
+    scores = pd.Series(0, index=df.index, dtype="int64")
+
+    normalized_fields = {
+        field: df[field].map(normalize_text)
+        for field in ["dni", "ip", "hostname", "ticket", "area", "centro_costo", "so"]
+    }
+
+    for group in terms:
+        group_score = pd.Series(0, index=df.index, dtype="int64")
+        for term in group:
+            contains = df["search_blob"].str.contains(term, na=False)
+            group_score += contains.astype(int)
+
+            for field_values in normalized_fields.values():
+                group_score += (field_values == term).astype(int) * 4
+                group_score += field_values.str.startswith(term, na=False).astype(int) * 2
+
+        scores += (group_score > 0).astype(int) * 5
+        scores += group_score
+
+    result = df[scores > 0].copy()
+    result["score"] = scores[scores > 0]
+    return result.sort_values(
+        by=["score", "estado", "fecha_asignacion", "ticket"],
+        ascending=[False, True, False, True],
+    )
+
+
+def summarize_group(df: pd.DataFrame, field: str, limit: int = 8) -> list[dict]:
+    subset = df[df[field] != ""]
+    if subset.empty:
         return []
+
+    grouped = (
+        subset.groupby(field)
+        .size()
+        .reset_index(name="cantidad")
+        .sort_values(by=["cantidad", field], ascending=[False, True])
+        .head(limit)
+    )
+    return grouped.to_dict(orient="records")
+
+
+def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
+    subset = df[df["ticket"] != ""].copy()
+    if subset.empty:
+        return []
+
+    summary = (
+        subset.groupby("ticket")
+        .agg(
+            cantidad=("ticket", "size"),
+            activos=("estado", lambda s: int((s == "ACTIVO").sum())),
+            cesados=("estado", lambda s: int((s == "CESADO").sum())),
+            ultima_asignacion=("fecha_asignacion", "max"),
+        )
+        .reset_index()
+        .sort_values(by=["cantidad", "activos", "ticket"], ascending=[False, False, True])
+        .head(limit)
+    )
+    return summary.to_dict(orient="records")
+
+
+def classify_assignment(row: pd.Series) -> str:
+    if clean_value(row.get("ip", "")) == "":
+        return "SIN_IP"
+
+    area = normalize_text(row.get("area", ""))
+    centro = normalize_text(row.get("centro_costo", ""))
+    combined = f"{area} {centro}".strip()
+
+    if "sede camana" in combined:
+        return "SEDE_CAMANA"
+    if "sede chota" in combined or "sedechota" in combined:
+        return "SEDE_CHOTA"
+    if (
+        "sede centro civico" in combined
+        or "sede civico" in combined
+        or "centrocivico" in combined
+        or "centro civico" in combined
+    ):
+        return "SEDE_CENTRO_CIVICO"
+
+    excluded_tags = [
+        "falla remoto",
+        "tv",
+        "capacitacion",
+        "pruebas",
+        "highend",
+        "pivot",
+        "ciberseguridad",
+    ]
+    if any(tag in combined for tag in excluded_tags):
+        return "EXCLUIDO"
+
+    return "ASIGNADO_SERVICIO"
+
+
+def filter_by_tipo_entorno(df: pd.DataFrame, tipo_entorno: str) -> pd.DataFrame:
+    tipo_normalized = normalize_text(tipo_entorno)
+    if tipo_normalized not in {"ts", "vms", "vm", "vmm"}:
+        return df
+
+    normalized_series = df["tipo_entorno"].map(normalize_text)
+    if tipo_normalized == "ts":
+        mask = normalized_series.str.contains("terminal server", na=False) | normalized_series.eq("ts")
+        return df[mask]
+
+    mask = (
+        normalized_series.str.contains("vm", na=False)
+        | normalized_series.str.contains("vmm", na=False)
+        | normalized_series.eq("vms")
+    )
+    return df[mask]
+
+
+def remote_assignments_only(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    scoped = df.copy()
+    scoped = scoped[(scoped["ip"] != "") & (scoped["dni"] != "")]
+    if scoped.empty:
+        return scoped
+
+    scoped["clasificacion_asignacion"] = scoped.apply(classify_assignment, axis=1)
+    return scoped[scoped["clasificacion_asignacion"] == "ASIGNADO_SERVICIO"].copy()
+
+
+def build_search_dashboard(df: pd.DataFrame) -> dict:
+    scoped = remote_assignments_only(df)
+    return {
+        "total_asignaciones_remotas": int(len(scoped)),
+        "ips_unicas": int(scoped["ip"].nunique()) if not scoped.empty else 0,
+        "usuarios_con_dni": int(scoped["dni"].nunique()) if not scoped.empty else 0,
+        "por_area": summarize_group(scoped, "area", limit=12),
+        "por_centro_costo": summarize_group(scoped, "centro_costo", limit=12),
+    }
+
+
+def build_assignment_pivot(df: pd.DataFrame, limit: int = 200) -> list[dict]:
+    scoped = remote_assignments_only(df)
+    if scoped.empty:
+        return []
+
+    scoped = scoped.copy()
+    normalized_so = scoped["so"].map(normalize_text)
+    scoped["win_10"] = normalized_so.str.contains("windows 10", na=False).astype(int)
+    scoped["win_11"] = normalized_so.str.contains("windows 11", na=False).astype(int)
+
+    grouped = (
+        scoped.groupby(["area", "centro_costo"], dropna=False)
+        .agg(
+            cantidad_ips=("ip", "size"),
+            ips_unicas=("ip", "nunique"),
+            usuarios_dni=("dni", "nunique"),
+            tickets_unicos=("ticket", lambda s: int(s.replace("", pd.NA).dropna().nunique())),
+            windows_10=("win_10", "sum"),
+            windows_11=("win_11", "sum"),
+        )
+        .reset_index()
+        .sort_values(
+            by=["cantidad_ips", "ips_unicas", "usuarios_dni", "area", "centro_costo"],
+            ascending=[False, False, False, True, True],
+        )
+        .head(limit)
+    )
+    return grouped.to_dict(orient="records")
+
+
+@app.get("/")
+def serve_index():
+    return FileResponse(BASE_DIR / "index.html")
+
+
+@app.post("/login")
+async def login(request: Request, response: Response):
+    body = await request.json()
+    username = clean_value(body.get("username", "")).lower()
+    password = str(body.get("password", ""))
+
+    user = USERS.get(username)
+    if not user or user["password"] != password:
+        raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
+
+    token = create_session_token(username)
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        samesite="lax",
+    )
+    return {
+        "username": username,
+        "role": user["role"],
+        "display_name": user["display_name"],
+    }
+
+
+@app.post("/logout")
+def logout(response: Response):
+    response.delete_cookie(SESSION_COOKIE)
+    return {"ok": True}
+
+
+@app.get("/me")
+def me(request: Request):
+    user = get_current_user(request)
+    return {
+        "username": user["username"],
+        "role": user["role"],
+        "display_name": user["display_name"],
+    }
+
+
+@app.post("/upload")
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    require_roles(request, {"admin", "ti"})
+    global df_global, current_file_name
+    df_global = load_dataframe_from_excel(file.file)
+    current_file_name = file.filename or "archivo_subido.xlsx"
+    return {
+        "mensaje": "Archivo cargado correctamente",
+        "registros": int(len(df_global)),
+        "archivo": current_file_name,
+    }
+
+
+@app.get("/vms")
+def get_vms(
+    request: Request,
+    q: str = Query(default=""),
+    tipo_entorno: str = Query(default="todos"),
+    status: str = Query(default="todos"),
+    limit: int = Query(default=200, ge=1, le=5000),
+):
+    get_current_user(request)
+    df = filter_by_status(ensure_data_loaded(), status)
+    df = filter_by_tipo_entorno(df, tipo_entorno)
+    result = smart_search(df, q) if q else df.copy()
+    result = result.drop(columns=["search_blob"], errors="ignore").head(limit)
+    return result.fillna("").to_dict(orient="records")
 
 
 @app.get("/dashboard")
-def dashboard():
-    try:
-        df = cargar_data()
+def dashboard(
+    request: Request,
+    status: str = Query(default="todos"),
+    tipo_entorno: str = Query(default="todos"),
+):
+    get_current_user(request)
+    df = filter_by_status(ensure_data_loaded(), status)
+    df = filter_by_tipo_entorno(df, tipo_entorno)
 
-        if df.empty:
-            return {
-                "total_activos": 0,
-                "por_area": []
-            }
+    total = len(df)
+    activos = int((df["estado"] == "ACTIVO").sum()) if not df.empty else 0
+    cesados = int((df["estado"] == "CESADO").sum()) if not df.empty else 0
+    tickets_con_ip = int(df.loc[df["ip"] != "", "ticket"].replace("", pd.NA).dropna().nunique())
+    activos_con_ip = df[df["ip"] != ""].copy()
+    if not activos_con_ip.empty:
+        activos_con_ip["clasificacion_asignacion"] = activos_con_ip.apply(classify_assignment, axis=1)
+    else:
+        activos_con_ip["clasificacion_asignacion"] = pd.Series(dtype="object")
 
-        activos = df[df["estado"] == "ACTIVO"]
-        por_area = df.groupby("area").size().reset_index(name="cantidad")
+    asignados_servicio = int((activos_con_ip["clasificacion_asignacion"] == "ASIGNADO_SERVICIO").sum())
+    sede_camana = int((activos_con_ip["clasificacion_asignacion"] == "SEDE_CAMANA").sum())
+    sede_chota = int((activos_con_ip["clasificacion_asignacion"] == "SEDE_CHOTA").sum())
+    sede_centro_civico = int(
+        (activos_con_ip["clasificacion_asignacion"] == "SEDE_CENTRO_CIVICO").sum()
+    )
+    excluidos = int((activos_con_ip["clasificacion_asignacion"] == "EXCLUIDO").sum())
 
-        return {
-            "total_activos": len(activos),
-            "por_area": por_area.to_dict(orient="records")
-        }
+    return {
+        "archivo": current_file_name,
+        "total_registros": total,
+        "total_activos": activos,
+        "total_cesados": cesados,
+        "asignados_servicio": asignados_servicio,
+        "sede_camana": sede_camana,
+        "sede_chota": sede_chota,
+        "sede_centro_civico": sede_centro_civico,
+        "activos_excluidos": excluidos,
+        "tickets_unicos": int(df.loc[df["ticket"] != "", "ticket"].nunique()) if not df.empty else 0,
+        "tickets_con_ip": tickets_con_ip,
+        "por_area": summarize_group(df, "area"),
+        "por_centro_costo": summarize_group(df, "centro_costo"),
+        "por_ticket": ticket_summary(df),
+    }
 
-    except Exception as e:
-        print("🔥 ERROR /dashboard:", e)
-        return {"total_activos": 0, "por_area": []}
+
+@app.get("/search-dashboard")
+def search_dashboard(
+    request: Request,
+    q: str = Query(default=""),
+    tipo_entorno: str = Query(default="todos"),
+    status: str = Query(default="todos"),
+):
+    get_current_user(request)
+    df = filter_by_status(ensure_data_loaded(), status)
+    df = filter_by_tipo_entorno(df, tipo_entorno)
+    result = smart_search(df, q) if q else df.copy()
+    return build_search_dashboard(result)
+
+
+@app.get("/search-pivot")
+def search_pivot(
+    request: Request,
+    q: str = Query(default=""),
+    tipo_entorno: str = Query(default="todos"),
+    status: str = Query(default="todos"),
+    limit: int = Query(default=200, ge=1, le=1000),
+):
+    get_current_user(request)
+    df = filter_by_status(ensure_data_loaded(), status)
+    df = filter_by_tipo_entorno(df, tipo_entorno)
+    result = smart_search(df, q) if q else df.copy()
+    return build_assignment_pivot(result, limit=limit)
+
+
+@app.get("/meta")
+def meta():
+    df = ensure_data_loaded()
+    return {
+        "archivo": current_file_name,
+        "total_registros": int(len(df)),
+        "columnas_clave": [
+            "ip",
+            "dni",
+            "nombre_completo",
+            "tipo_entorno",
+            "hostname",
+            "ticket",
+            "area",
+            "centro_costo",
+            "fecha_conexion",
+            "fecha_asignacion",
+            "estado",
+            "modelo_seguro",
+        ],
+        "excel_por_defecto": DEFAULT_EXCEL.name if DEFAULT_EXCEL else "",
+    }
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
