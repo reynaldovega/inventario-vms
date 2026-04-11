@@ -47,7 +47,7 @@ Ejemplo:
   {
     "username": "miriam.gamboa",
     "password": "123456",
-    "role": "ti",
+    "role": "tecnologia",
     "display_name": "Miriam Gamboa"
   },
   {
@@ -64,24 +64,24 @@ Ejemplo:
 Solo agrega otro bloque dentro del JSON:
 
 ```json
-{
-  "username": "juan.perez",
-  "password": "clave123",
-  "role": "ti",
-  "display_name": "Juan Perez"
-}
+  {
+    "username": "juan.perez",
+    "password": "clave123",
+    "role": "tecnologia",
+    "display_name": "Juan Perez"
+  }
 ```
 
 Roles permitidos:
 
 - `admin`
-- `ti`
+- `tecnologia`
 - `invitado`
 
 ## 5. Que hace cada rol
 
 - `admin`: acceso total y puede subir archivo.
-- `ti`: puede usar la app y subir archivo.
+- `tecnologia`: puede usar la app y subir archivo.
 - `invitado`: solo lectura.
 
 ## 6. Importante sobre el Excel

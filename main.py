@@ -39,7 +39,7 @@ USERS = {
     },
     "miriam.gamboa": {
         "password": "123456",
-        "role": "ti",
+        "role": "tecnologia",
         "display_name": "Miriam Gamboa",
     },
     "invitado": {
@@ -72,7 +72,10 @@ def load_users_from_env() -> dict:
         role = str(item.get("role", "")).strip().lower()
         display_name = str(item.get("display_name", "")).strip() or username
 
-        if not username or not password or role not in {"admin", "ti", "invitado"}:
+        if role == "ti":
+            role = "tecnologia"
+
+        if not username or not password or role not in {"admin", "tecnologia", "invitado"}:
             continue
 
         loaded_users[username] = {
@@ -497,7 +500,7 @@ def me(request: Request):
 
 @app.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...)):
-    require_roles(request, {"admin", "ti"})
+    require_roles(request, {"admin", "tecnologia"})
     global df_global, current_file_name
     df_global = load_dataframe_from_excel(file.file)
     current_file_name = file.filename or "archivo_subido.xlsx"

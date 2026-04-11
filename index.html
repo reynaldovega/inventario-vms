@@ -113,6 +113,7 @@
       border: 1px solid rgba(216, 203, 183, 0.75);
       color: var(--brand-dark);
       font-size: 0.92rem;
+      flex-wrap: wrap;
     }
 
     .hero::after {
@@ -376,25 +377,76 @@
 
     @media (max-width: 640px) {
       .shell {
-        padding: 18px 14px 32px;
+        padding: 12px 10px 28px;
       }
 
       .hero,
       .panel,
       .card {
-        border-radius: 20px;
+        border-radius: 18px;
       }
 
       .cards {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .card {
+        padding: 14px;
+      }
+
+      .card span {
+        font-size: 0.7rem;
+        margin-bottom: 6px;
+      }
+
+      .card strong {
+        font-size: 1.55rem;
+      }
+
+      .topbar {
+        gap: 8px;
+      }
+
+      .pill,
+      #logoutButton {
+        width: 100%;
+        justify-content: center;
+      }
+
+      h1 {
+        font-size: 2.15rem;
+      }
+
+      .subtitle {
+        font-size: 0.95rem;
       }
 
       .search-row {
         align-items: stretch;
+        flex-direction: column;
       }
 
-      .search-row input[type="text"] {
-        min-width: 100%;
+      .search-row input[type="text"],
+      .search-row select,
+      .search-row button,
+      .upload-row input[type="file"],
+      .upload-row button {
+        width: 100%;
+      }
+
+      .upload-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .table-wrap {
+        border-radius: 14px;
+      }
+
+      th, td {
+        padding: 10px 8px;
+        font-size: 0.84rem;
       }
     }
   </style>
@@ -403,7 +455,7 @@
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
       <h2>Acceso seguro</h2>
-      <p>Ingresa con tu usuario y contrasena para usar el inventario. El sistema distingue accesos de admin, TI y modo lectura.</p>
+      <p>Ingresa con tu usuario y contrasena para usar el inventario. El sistema distingue accesos de admin, tecnologia y modo lectura.</p>
       <div class="auth-form">
         <input type="text" id="loginUsername" placeholder="Usuario">
         <input type="password" id="loginPassword" placeholder="Contrasena">
@@ -588,6 +640,13 @@
       return `<span class="badge ${css}">${estado || "SIN DATO"}</span>`;
     }
 
+    function roleLabel(role) {
+      if (role === "admin") return "Administrador";
+      if (role === "tecnologia") return "Tecnologia / Ingenieria";
+      if (role === "invitado") return "Invitado lectura";
+      return role || "Sin rol";
+    }
+
     function applyRolePermissions() {
       const uploadButton = document.getElementById("uploadButton");
       const fileInput = document.getElementById("fileInput");
@@ -604,13 +663,13 @@
         return;
       }
 
-      const canUpload = currentUser.role === "admin" || currentUser.role === "ti";
+      const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
       uploadButton.disabled = !canUpload;
       fileInput.disabled = !canUpload;
       note.textContent = canUpload
         ? "Tu rol permite cargar nuevas bases."
         : "Modo lectura: este rol no puede subir ni modificar la base.";
-      sessionInfo.textContent = `${currentUser.display_name} | Rol: ${currentUser.role}`;
+      sessionInfo.textContent = `${currentUser.display_name} | Rol: ${roleLabel(currentUser.role)}`;
       logoutButton.classList.remove("hidden");
     }
 
@@ -818,7 +877,7 @@
     }
 
     async function subirArchivo() {
-      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "ti")) {
+      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) {
         alert("Tu rol no tiene permisos para subir archivos.");
         return;
       }
