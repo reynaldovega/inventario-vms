@@ -7,11 +7,8 @@ app = FastAPI()
 # 🔥 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500"
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -29,7 +26,7 @@ def procesar_df(df):
         # 🔥 detectar columna IP
         col_ip = None
         for col in df.columns:
-            if "ip" in col.lower():
+            if "ip" in col.lower() or "ts" in col.lower():
                 col_ip = col
                 break
 
@@ -120,6 +117,12 @@ def get_vms():
 def dashboard():
     try:
         df = cargar_data()
+
+        if df.empty:
+            return {
+                "total_activos": 0,
+                "por_area": []
+            }
 
         activos = df[df["estado"] == "ACTIVO"]
         por_area = df.groupby("area").size().reset_index(name="cantidad")
