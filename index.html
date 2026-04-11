@@ -881,8 +881,19 @@
     function renderTickets(items) {
       renderMiniTable(
         "tablaTickets",
-        ["Ticket", "Total", "Activos", "Cesados"],
-        items.map(item => `<tr><td>${item.ticket}</td><td>${item.cantidad}</td><td>${item.activos}</td><td>${item.cesados}</td></tr>`),
+        ["Ticket", "Solicitudes", "Activos", "Cesados", "Mod. seguro SI", "Pers. nuevo NO", "F. conexion max", "F. asignacion"],
+        items.map(item => `
+          <tr>
+            <td>${item.ticket}</td>
+            <td>${item.solicitudes_dni}</td>
+            <td>${item.activos}</td>
+            <td>${item.cesados}</td>
+            <td>${item.modelo_seguro_si}</td>
+            <td>${item.modelo_seguro_no}</td>
+            <td>${item.fecha_conexion_max || "-"}</td>
+            <td>${item.fecha_asignacion_max || "-"}</td>
+          </tr>
+        `),
         "Sin tickets para mostrar"
       );
     }

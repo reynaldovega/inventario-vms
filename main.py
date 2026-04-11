@@ -327,23 +327,55 @@ def summarize_group(df: pd.DataFrame, field: str, limit: int = 8) -> list[dict]:
     return grouped.to_dict(orient="records")
 
 
+def parse_display_dates(series: pd.Series) -> pd.Series:
+    return pd.to_datetime(series, format="%d/%m/%Y", errors="coerce")
+
+
 def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
     subset = df[df["ticket"] != ""].copy()
     if subset.empty:
         return []
 
+    subset["dni_limpio"] = subset["dni"].where(subset["dni"] != "", pd.NA)
+    subset["fecha_conexion_dt"] = parse_display_dates(subset["fecha_conexion"])
+    subset["fecha_asignacion_dt"] = parse_display_dates(subset["fecha_asignacion"])
+
     summary = (
         subset.groupby("ticket")
         .agg(
-            cantidad=("ticket", "size"),
+            solicitudes_dni=("dni_limpio", lambda s: int(s.dropna().nunique())),
+            registros=("ticket", "size"),
             activos=("estado", lambda s: int((s == "ACTIVO").sum())),
             cesados=("estado", lambda s: int((s == "CESADO").sum())),
-            ultima_asignacion=("fecha_asignacion", "max"),
+            fecha_conexion_max=("fecha_conexion_dt", "max"),
+            fecha_asignacion_max=("fecha_asignacion_dt", "max"),
         )
         .reset_index()
-        .sort_values(by=["cantidad", "activos", "ticket"], ascending=[False, False, True])
-        .head(limit)
     )
+
+    modelo_seguro_si = (
+        subset[subset["modelo_seguro"] == "SI"]
+        .groupby("ticket")["dni_limpio"]
+        .agg(lambda s: int(s.dropna().nunique()))
+    )
+    modelo_seguro_no = (
+        subset[subset["modelo_seguro"] == "NO"]
+        .groupby("ticket")["dni_limpio"]
+        .agg(lambda s: int(s.dropna().nunique()))
+    )
+
+    summary["modelo_seguro_si"] = summary["ticket"].map(modelo_seguro_si).fillna(0).astype(int)
+    summary["modelo_seguro_no"] = summary["ticket"].map(modelo_seguro_no).fillna(0).astype(int)
+    summary["solicitudes_dni"] = summary.apply(
+        lambda row: int(row["registros"]) if int(row["solicitudes_dni"]) == 0 else int(row["solicitudes_dni"]),
+        axis=1,
+    )
+    summary["fecha_conexion_max"] = summary["fecha_conexion_max"].dt.strftime("%d/%m/%Y").fillna("")
+    summary["fecha_asignacion_max"] = summary["fecha_asignacion_max"].dt.strftime("%d/%m/%Y").fillna("")
+    summary = summary.sort_values(
+        by=["solicitudes_dni", "activos", "ticket"], ascending=[False, False, True]
+    ).head(limit)
+
     return summary.to_dict(orient="records")
 
 
