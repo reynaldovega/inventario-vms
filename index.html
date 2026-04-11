@@ -550,21 +550,6 @@
       </div>
     </section>
 
-    <section class="panel hidden" id="pivotSection" style="margin-top: 22px;">
-      <div class="section-head">
-        <div>
-          <h3>Tabla dinamica de asignaciones remotas</h3>
-          <p>Conteo de IPs por area y centro de costo, solo para usuarios con DNI e IP valida.</p>
-        </div>
-        <button class="secondary hidden" id="exportAssignmentsButton" onclick="descargarAsignacionesRemotas()">
-          Descargar Excel
-        </button>
-      </div>
-      <div class="table-wrap">
-        <table id="tablaPivot"></table>
-      </div>
-    </section>
-
     <section class="grid hidden" id="searchResultsSection">
       <div class="panel">
         <div class="section-head">
@@ -614,6 +599,21 @@
             <table class="mini-table" id="tablaCentros"></table>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="panel hidden" id="pivotSection" style="margin-top: 22px;">
+      <div class="section-head">
+        <div>
+          <h3>Tabla dinamica de asignaciones remotas</h3>
+          <p>Conteo de IPs por area y centro de costo, solo para usuarios con DNI e IP valida.</p>
+        </div>
+        <button class="secondary hidden" id="exportAssignmentsButton" onclick="descargarAsignacionesRemotas()">
+          Descargar Excel
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table id="tablaPivot"></table>
       </div>
     </section>
   </div>
