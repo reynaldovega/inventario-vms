@@ -332,48 +332,62 @@ def parse_display_dates(series: pd.Series) -> pd.Series:
 
 
 def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
-    subset = df[(df["ticket"] != "") & (df["dni"] != "")].copy()
+    subset = df[df["ticket"] != ""].copy()
     if subset.empty:
         return []
 
-    subset["dni_ticket"] = subset["ticket"].astype(str) + "||" + subset["dni"].astype(str)
-    subset["activo_valido"] = ((subset["ip"] != "") & (subset["dni"] != "") & (subset["ticket"] != "")).astype(int)
-    subset["cesado_valido"] = ((subset["ip"] == "") & (subset["dni"] != "") & (subset["ticket"] != "")).astype(int)
-    subset["modelo_seguro_si_activo"] = (
-        (subset["modelo_seguro"] == "SI") & (subset["ip"] != "") & (subset["dni"] != "") & (subset["ticket"] != "")
-    ).astype(int)
-    subset["modelo_seguro_no_activo"] = (
-        (subset["modelo_seguro"] == "NO") & (subset["ip"] != "") & (subset["dni"] != "") & (subset["ticket"] != "")
-    ).astype(int)
+    # 👇 DNI únicos por ticket
+    solicitudes = subset.groupby("ticket")["dni"].nunique().reset_index(name="solicitudes")
+
+    # 👇 activos (dni únicos con IP)
+    activos = (
+        subset[subset["ip"] != ""]
+        .groupby("ticket")["dni"]
+        .nunique()
+        .reset_index(name="activos")
+    )
+
+    # 👇 cesados (dni únicos sin IP)
+    cesados = (
+        subset[subset["ip"] == ""]
+        .groupby("ticket")["dni"]
+        .nunique()
+        .reset_index(name="cesados")
+    )
+
+    # 👇 unir todo
+    summary = solicitudes.merge(activos, on="ticket", how="left") \
+                         .merge(cesados, on="ticket", how="left")
+
+    summary = summary.fillna(0)
+
+    # 👇 asegurar enteros
+    summary["activos"] = summary["activos"].astype(int)
+    summary["cesados"] = summary["cesados"].astype(int)
+
+    # 👇 fechas
     subset["fecha_conexion_dt"] = parse_display_dates(subset["fecha_conexion"])
     subset["fecha_asignacion_dt"] = parse_display_dates(subset["fecha_asignacion"])
 
-    summary = (
+    fechas = (
         subset.groupby("ticket")
         .agg(
-            solicitudes_dni=("dni_ticket", "size"),
-            activos=("activo_valido", "sum"),
-            cesados=("cesado_valido", "sum"),
-            fecha_conexion_max=("fecha_conexion_dt", "max"),
-            fecha_asignacion_max=("fecha_asignacion_dt", "max"),
-            modelo_seguro_si=("modelo_seguro_si_activo", "sum"),
-            modelo_seguro_no=("modelo_seguro_no_activo", "sum"),
+            fecha_conexion=("fecha_conexion_dt", "max"),
+            fecha_asignacion=("fecha_asignacion_dt", "max"),
         )
         .reset_index()
     )
-    summary["solicitudes_dni"] = summary["solicitudes_dni"].fillna(0).astype(int)
-    summary["activos"] = summary["activos"].fillna(0).astype(int)
-    summary["cesados"] = summary["cesados"].fillna(0).astype(int)
-    summary["modelo_seguro_si"] = summary["modelo_seguro_si"].fillna(0).astype(int)
-    summary["modelo_seguro_no"] = summary["modelo_seguro_no"].fillna(0).astype(int)
-    summary["fecha_conexion_max"] = summary["fecha_conexion_max"].dt.strftime("%d/%m/%Y").fillna("")
-    summary["fecha_asignacion_max"] = summary["fecha_asignacion_max"].dt.strftime("%d/%m/%Y").fillna("")
-    summary = summary.sort_values(
-        by=["solicitudes_dni", "activos", "ticket"], ascending=[False, False, True]
-    ).head(limit)
 
-    return summary.to_dict(orient="records")
+    summary = summary.merge(fechas, on="ticket", how="left")
 
+    summary["fecha_conexion"] = summary["fecha_conexion"].dt.strftime("%d/%m/%Y").fillna("")
+    summary["fecha_asignacion"] = summary["fecha_asignacion"].dt.strftime("%d/%m/%Y").fillna("")
+
+    return (
+        summary.sort_values(by=["solicitudes", "activos"], ascending=[False, False])
+        .head(limit)
+        .to_dict(orient="records")
+    )
 
 def classify_assignment(row: pd.Series) -> str:
     if clean_value(row.get("ip", "")) == "":
