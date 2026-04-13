@@ -336,36 +336,55 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
     if subset.empty:
         return []
 
-    # 👇 DNI únicos por ticket
-    solicitudes = subset.groupby("ticket")["dni"].nunique().reset_index(name="solicitudes")
+    # 🔹 solicitudes (FILAS REALES)
+    solicitudes = (
+        subset.groupby("ticket")
+        .size()
+        .reset_index(name="solicitudes")
+    )
 
-    # 👇 activos (dni únicos con IP)
+    # 🔹 activos
     activos = (
         subset[subset["ip"] != ""]
-        .groupby("ticket")["dni"]
-        .nunique()
+        .groupby("ticket")
+        .size()
         .reset_index(name="activos")
     )
 
-    # 👇 cesados (dni únicos sin IP)
+    # 🔹 cesados
     cesados = (
         subset[subset["ip"] == ""]
-        .groupby("ticket")["dni"]
-        .nunique()
+        .groupby("ticket")
+        .size()
         .reset_index(name="cesados")
     )
 
-    # 👇 unir todo
-    summary = solicitudes.merge(activos, on="ticket", how="left") \
-                         .merge(cesados, on="ticket", how="left")
+    # 🔹 modelo seguro SI
+    modelo_si = (
+        subset[subset["modelo_seguro"] == "SI"]
+        .groupby("ticket")
+        .size()
+        .reset_index(name="modelo_seguro_si")
+    )
+
+    # 🔹 personal nuevo (NO)
+    modelo_no = (
+        subset[subset["modelo_seguro"] == "NO"]
+        .groupby("ticket")
+        .size()
+        .reset_index(name="personal_nuevo_no")
+    )
+
+    # 🔹 merge
+    summary = solicitudes \
+        .merge(activos, on="ticket", how="left") \
+        .merge(cesados, on="ticket", how="left") \
+        .merge(modelo_si, on="ticket", how="left") \
+        .merge(modelo_no, on="ticket", how="left")
 
     summary = summary.fillna(0)
 
-    # 👇 asegurar enteros
-    summary["activos"] = summary["activos"].astype(int)
-    summary["cesados"] = summary["cesados"].astype(int)
-
-    # 👇 fechas
+    # 🔹 fechas
     subset["fecha_conexion_dt"] = parse_display_dates(subset["fecha_conexion"])
     subset["fecha_asignacion_dt"] = parse_display_dates(subset["fecha_asignacion"])
 
