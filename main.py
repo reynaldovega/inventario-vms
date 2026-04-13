@@ -336,47 +336,30 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
     if subset.empty:
         return []
 
-    # 🔥 LIMPIAR IP
+    # 🔥 limpiar IP
     subset["ip_limpio"] = subset["ip"].fillna("").astype(str).str.strip()
 
-    # 🔥 CLAVE ÚNICA (ticket + dni)
-    subset["key"] = subset["ticket"] + "|" + subset["dni"]
-
-    # 🔹 solicitudes (DNI únicos por ticket)
+    # 🔹 solicitudes (FILAS)
     solicitudes = (
-        subset.groupby("ticket")["key"]
-        .nunique()
+        subset.groupby("ticket")
+        .size()
         .reset_index(name="solicitudes")
     )
 
-    # 🔹 activos (dni que tienen al menos una IP)
-    activos_keys = subset[subset["ip_limpio"] != ""].groupby("ticket")["key"].unique()
-
-    # 🔹 todos los dni por ticket
-    todos_keys = subset.groupby("ticket")["key"].unique()
-
-    cesados_list = []
-
-    for ticket in todos_keys.index:
-        activos_set = set(activos_keys.get(ticket, []))
-        todos_set = set(todos_keys[ticket])
-
-        # 🔥 cesados reales = los que NUNCA tuvieron IP
-        cesados_set = todos_set - activos_set
-
-        cesados_list.append({
-            "ticket": ticket,
-            "cesados": len(cesados_set)
-        })
-
-    cesados = pd.DataFrame(cesados_list)
-
-    # 🔹 activos final
+    # 🔹 activos (filas con IP)
     activos = (
         subset[subset["ip_limpio"] != ""]
-        .groupby("ticket")["key"]
-        .nunique()
+        .groupby("ticket")
+        .size()
         .reset_index(name="activos")
+    )
+
+    # 🔹 cesados (filas sin IP)
+    cesados = (
+        subset[subset["ip_limpio"] == ""]
+        .groupby("ticket")
+        .size()
+        .reset_index(name="cesados")
     )
 
     # 🔹 modelo seguro SI
@@ -387,7 +370,7 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
         .reset_index(name="modelo_seguro_si")
     )
 
-    # 🔹 personal nuevo NO
+    # 🔹 modelo seguro NO
     modelo_no = (
         subset[subset["modelo_seguro"] == "NO"]
         .groupby("ticket")
@@ -427,6 +410,7 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
         .head(limit)
         .to_dict(orient="records")
     )
+
 
 def classify_assignment(row: pd.Series) -> str:
     if clean_value(row.get("ip", "")) == "":
