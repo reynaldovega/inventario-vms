@@ -336,30 +336,47 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
     if subset.empty:
         return []
 
-    # 🔥 LIMPIEZA REAL DE IP (CLAVE)
+    # 🔥 LIMPIAR IP
     subset["ip_limpio"] = subset["ip"].fillna("").astype(str).str.strip()
 
-    # 🔹 solicitudes (TOTAL FILAS)
+    # 🔥 CLAVE ÚNICA (ticket + dni)
+    subset["key"] = subset["ticket"] + "|" + subset["dni"]
+
+    # 🔹 solicitudes (DNI únicos por ticket)
     solicitudes = (
-        subset.groupby("ticket")
-        .size()
+        subset.groupby("ticket")["key"]
+        .nunique()
         .reset_index(name="solicitudes")
     )
 
-    # 🔹 activos (CON IP)
+    # 🔹 activos (dni que tienen al menos una IP)
+    activos_keys = subset[subset["ip_limpio"] != ""].groupby("ticket")["key"].unique()
+
+    # 🔹 todos los dni por ticket
+    todos_keys = subset.groupby("ticket")["key"].unique()
+
+    cesados_list = []
+
+    for ticket in todos_keys.index:
+        activos_set = set(activos_keys.get(ticket, []))
+        todos_set = set(todos_keys[ticket])
+
+        # 🔥 cesados reales = los que NUNCA tuvieron IP
+        cesados_set = todos_set - activos_set
+
+        cesados_list.append({
+            "ticket": ticket,
+            "cesados": len(cesados_set)
+        })
+
+    cesados = pd.DataFrame(cesados_list)
+
+    # 🔹 activos final
     activos = (
         subset[subset["ip_limpio"] != ""]
-        .groupby("ticket")
-        .size()
+        .groupby("ticket")["key"]
+        .nunique()
         .reset_index(name="activos")
-    )
-
-    # 🔹 cesados (SIN IP)
-    cesados = (
-        subset[subset["ip_limpio"] == ""]
-        .groupby("ticket")
-        .size()
-        .reset_index(name="cesados")
     )
 
     # 🔹 modelo seguro SI
@@ -370,7 +387,7 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
         .reset_index(name="modelo_seguro_si")
     )
 
-    # 🔹 personal nuevo (NO)
+    # 🔹 personal nuevo NO
     modelo_no = (
         subset[subset["modelo_seguro"] == "NO"]
         .groupby("ticket")
