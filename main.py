@@ -190,7 +190,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     raw.columns = [clean_value(col) for col in raw.columns]
 
     processed = pd.DataFrame()
-    processed["ip"] = safe_col(raw, 0).map(clean_value)
+    processed["ip"] = safe_col(raw, 0).map(clean_value).str.strip()
     processed["so"] = safe_col(raw, 1).map(clean_value)
     processed["area"] = safe_col(raw, 3).map(clean_value)
     processed["centro_costo"] = safe_col(raw, 4).map(clean_value)
@@ -336,24 +336,27 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
     if subset.empty:
         return []
 
-    # 🔹 solicitudes (FILAS REALES)
+    # 🔥 LIMPIEZA REAL DE IP (CLAVE)
+    subset["ip_limpio"] = subset["ip"].fillna("").astype(str).str.strip()
+
+    # 🔹 solicitudes (TOTAL FILAS)
     solicitudes = (
         subset.groupby("ticket")
         .size()
         .reset_index(name="solicitudes")
     )
 
-    # 🔹 activos
+    # 🔹 activos (CON IP)
     activos = (
-        subset[subset["ip"] != ""]
+        subset[subset["ip_limpio"] != ""]
         .groupby("ticket")
         .size()
         .reset_index(name="activos")
     )
 
-    # 🔹 cesados
+    # 🔹 cesados (SIN IP)
     cesados = (
-        subset[subset["ip"] == ""]
+        subset[subset["ip_limpio"] == ""]
         .groupby("ticket")
         .size()
         .reset_index(name="cesados")
@@ -785,6 +788,7 @@ def dashboard(
     df = filter_by_status(ensure_data_loaded(), status)
     df = filter_by_tipo_entorno(df, tipo_entorno)
     ticket_df = filter_by_tipo_entorno(ensure_data_loaded(), tipo_entorno)
+    ticket_df = ticket_df.copy()  # sin filtro de estado
 
     total = len(df)
     activos = int((df["estado"] == "ACTIVO").sum()) if not df.empty else 0
