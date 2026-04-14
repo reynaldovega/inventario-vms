@@ -803,14 +803,21 @@ def dashboard(
     tipo_entorno: str = Query(default="todos"),
 ):
     get_current_user(request)
-    df = filter_by_status(ensure_data_loaded(), status)
+
+    base_df = ensure_data_loaded()  # ✅ alineado
+
+    # 🔹 cards (filtrados)
+    df = filter_by_status(base_df, status)
     df = filter_by_tipo_entorno(df, tipo_entorno)
-    ticket_df = filter_by_tipo_entorno(ensure_data_loaded(), tipo_entorno)
-    ticket_df = ticket_df.copy()  # sin filtro de estado
+
+    # 🔥 ticket summary SIN filtro de estado
+    ticket_df = filter_by_tipo_entorno(base_df, tipo_entorno)
 
     total = len(df)
     activos = int((df["estado"] == "ACTIVO").sum()) if not df.empty else 0
     cesados = int((df["estado"] == "CESADO").sum()) if not df.empty else 0
+
+  
     tickets_con_ip = int(df.loc[df["ip"] != "", "ticket"].replace("", pd.NA).dropna().nunique())
     activos_con_ip = df[df["ip"] != ""].copy()
     if not activos_con_ip.empty:
@@ -827,21 +834,21 @@ def dashboard(
     excluidos = int((activos_con_ip["clasificacion_asignacion"] == "EXCLUIDO").sum())
 
     return {
-        "archivo": current_file_name,
-        "total_registros": total,
-        "total_activos": activos,
-        "total_cesados": cesados,
-        "asignados_servicio": asignados_servicio,
-        "sede_camana": sede_camana,
-        "sede_chota": sede_chota,
-        "sede_centro_civico": sede_centro_civico,
-        "activos_excluidos": excluidos,
-        "tickets_unicos": int(df.loc[df["ticket"] != "", "ticket"].nunique()) if not df.empty else 0,
-        "tickets_con_ip": tickets_con_ip,
-        "por_area": summarize_group(df, "area"),
-        "por_centro_costo": summarize_group(df, "centro_costo"),
-        "por_ticket": ticket_summary(ticket_df),
-    }
+    "archivo": current_file_name,
+    "total_registros": total,
+    "total_activos": activos,
+    "total_cesados": cesados,
+    "asignados_servicio": asignados_servicio,
+    "sede_camana": sede_camana,
+    "sede_chota": sede_chota,
+    "sede_centro_civico": sede_centro_civico,
+    "activos_excluidos": excluidos,
+    "tickets_unicos": int(df.loc[df["ticket"] != "", "ticket"].nunique()) if not df.empty else 0,
+    "tickets_con_ip": tickets_con_ip,
+    "por_area": summarize_group(df, "area"),
+    "por_centro_costo": summarize_group(df, "centro_costo"),
+    "por_ticket": ticket_summary(ticket_df),
+}
 
 
 @app.get("/search-dashboard")
