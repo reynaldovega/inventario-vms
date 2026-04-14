@@ -999,29 +999,31 @@
     }
 
     async function refreshSearchDashboard(query, tipoEntorno, status) {
-      const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
-      const dashboard = await jsonFetch(`${apiBase}/search-dashboard?${params.toString()}`);
-      const pivot = await jsonFetch(`${apiBase}/search-pivot?${params.toString()}&limit=200`);
-      setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
-      setText("searchIpsUnicas", dashboard.ips_unicas);
-      setText("searchDniUnicos", dashboard.usuarios_con_dni);
-      setText(
-        "searchModoActual",
-        tipoEntorno === "ts" ? "Solo TS" : (tipoEntorno === "vms" ? "Solo VMS" : "TS y VMS")
-      );
-      setText(
-        "searchEstadoActual",
-        status === "activo" ? "Solo activos" : (status === "cesado" ? "Solo cesados" : "Todos")
-      );
-      renderAreas(dashboard.por_area || []);
-      renderCentros(dashboard.por_centro_costo || []);
-      renderPivotTable(pivot || []);
-    }
+  const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
+
+  const dashboard = await jsonFetch(
+    `${apiBase}/search-dashboard?${params.toString()}`
+  );
+
+  const pivot = await jsonFetch(
+    `${apiBase}/search-pivot?${params.toString()}&limit=200`
+  );
+
+  setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
+  setText("searchIpsUnicas", dashboard.ips_unicas);
+  setText("searchDniUnicos", dashboard.usuarios_con_dni);
+
+  renderAreas(dashboard.por_area || []);
+  renderCentros(dashboard.por_centro_costo || []);
+  renderPivotTable(pivot || []);
+}
 
     async function refreshDashboard() {
       const status = document.getElementById("statusFilter").value;
       const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
-      const dashboard = await jsonFetch(`${apiBase}/dashboard?status=${encodeURIComponent(status)}&tipo_entorno=${encodeURIComponent(tipoEntorno)}`);
+      const dashboard = await jsonFetch(
+      `${apiBase}/dashboard?status=todos&tipo_entorno=${tipoEntorno}`
+       );
       setText("totalRegistros", dashboard.total_registros);
       setText("totalActivos", dashboard.total_activos);
       setText("totalCesados", dashboard.total_cesados);
@@ -1117,7 +1119,7 @@
         renderTicketAudit(null);
       }
       await refreshSearchDashboard(query, tipoEntorno, status);
-      await refreshDashboard();
+      
     }
 
     function limpiar() {
