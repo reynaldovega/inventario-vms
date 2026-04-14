@@ -1009,13 +1009,16 @@
     `${apiBase}/search-pivot?${params.toString()}&limit=200`
   );
 
-  setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
-  setText("searchIpsUnicas", dashboard.ips_unicas);
-  setText("searchDniUnicos", dashboard.usuarios_con_dni);
+   setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
+   setText("searchIpsUnicas", dashboard.ips_unicas);
+   setText("searchDniUnicos", dashboard.usuarios_con_dni);
 
-  renderAreas(dashboard.por_area || []);
-  renderCentros(dashboard.por_centro_costo || []);
-  renderPivotTable(pivot || []);
+   renderAreas(dashboard.por_area || []);
+   renderCentros(dashboard.por_centro_costo || []);
+   renderPivotTable(pivot || []);
+
+  // 🔥 ESTA LÍNEA FALTABA
+   renderTickets(dashboard.por_ticket || []);
 }
 
     async function refreshDashboard() {
