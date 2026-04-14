@@ -211,7 +211,18 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
         ]
     )
 
-    processed["estado"] = processed["ip"].apply(lambda ip: "ACTIVO" if ip else "CESADO")
+    processed["ip_limpio"] = (
+         processed["ip"]
+           .fillna("")
+           .astype(str)
+           .str.strip()
+           .replace(["-", "nan", "None", "NULL"], "")
+)
+ 
+    processed["estado"] = processed["ip_limpio"].apply(
+    lambda ip: "ACTIVO" if ip != "" else "CESADO"
+)
+
     processed["modelo_seguro"] = processed["modelo_seguro"].apply(
         lambda value: "SI"
         if normalize_text(value) == "si"
@@ -337,7 +348,13 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
         return []
 
     # 🔥 limpiar IP
-    subset["ip_limpio"] = subset["ip"].fillna("").astype(str).str.strip()
+    subset["ip_limpio"] = (
+    subset["ip"]
+    .fillna("")
+    .astype(str)
+    .str.strip()
+    .replace(["-", "nan", "None", "NULL"], "")
+)
 
     # 🔹 solicitudes (FILAS)
     solicitudes = (
