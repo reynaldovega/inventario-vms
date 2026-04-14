@@ -859,10 +859,18 @@ def search_dashboard(
     status: str = Query(default="todos"),
 ):
     get_current_user(request)
+
     df = filter_by_status(ensure_data_loaded(), status)
     df = filter_by_tipo_entorno(df, tipo_entorno)
+
     result = smart_search(df, q) if q else df.copy()
-    return build_search_dashboard(result)
+
+    data = build_search_dashboard(result)
+
+    # 🔥 AQUÍ VA
+    data["por_ticket"] = ticket_summary(result)
+
+    return data
 
 
 @app.get("/search-pivot")
