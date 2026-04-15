@@ -683,6 +683,12 @@ async function buscar() {
 
   if (!query) return;
 
+  // 🔥 AHORA SÍ MOSTRAR
+  setSearchSectionVisible(true);
+  document.getElementById("pivotSection").classList.remove("hidden");
+  document.getElementById("ticketAuditSection").classList.remove("hidden");
+  document.getElementById("searchInsights").classList.remove("hidden");
+
   const data = await jsonFetch(
     `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
   );
@@ -709,8 +715,6 @@ async function buscar() {
   } else {
     renderTicketAudit(null);
   }
-
-  setSearchSectionVisible(true);
 }
 
 // =========================
@@ -760,28 +764,6 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
 // =========================
 // 🧩 RENDERS
 // =========================
-function renderMainTable(data) {
-  const table = document.getElementById("tablaResultados");
-
-  if (!data.length) {
-    table.innerHTML = `<tr><td class="empty">Sin resultados</td></tr>`;
-    return;
-  }
-
-  table.innerHTML = `
-    <tr>
-      <th>DNI</th><th>IP</th><th>Hostname</th><th>Ticket</th>
-    </tr>
-    ${data.map(d => `
-      <tr>
-        <td>${d.dni || "-"}</td>
-        <td>${d.ip || "-"}</td>
-        <td>${d.hostname || "-"}</td>
-        <td>${d.ticket || "-"}</td>
-      </tr>
-    `).join("")}
-  `;
-}
 
 function renderTickets(items) {
   const table = document.getElementById("tablaTickets");
@@ -809,10 +791,120 @@ function renderTickets(items) {
   `;
 }
 
-function renderAreas() {}
-function renderCentros() {}
-function renderPivotTable() {}
-function renderTicketAudit() {}
+function renderMainTable(data) {
+  const table = document.getElementById("tablaResultados");
+  if (!data.length) {
+    table.innerHTML = `<tr><td class="empty">Sin resultados</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr>
+      <th>DNI</th><th>IP</th><th>Hostname</th><th>Ticket</th>
+    </tr>
+    ${data.map(d => `
+      <tr>
+        <td>${d.dni || "-"}</td>
+        <td>${d.ip || "-"}</td>
+        <td>${d.hostname || "-"}</td>
+        <td>${d.ticket || "-"}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderCentros(items) {
+  const table = document.getElementById("tablaCentros");
+
+  if (!items.length) {
+    table.innerHTML = `<tr><td class="empty">Sin datos</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr><th>Centro</th><th>Cantidad</th></tr>
+    ${items.map(i => `
+      <tr>
+        <td>${i.centro_costo}</td>
+        <td>${i.total}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderAreas(items) {
+  const table = document.getElementById("tablaAreas");
+
+  if (!items.length) {
+    table.innerHTML = `<tr><td class="empty">Sin datos</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr><th>Area</th><th>Cantidad</th></tr>
+    ${items.map(i => `
+      <tr>
+        <td>${i.area}</td>
+        <td>${i.total}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderTicketAudit(data) {
+  if (!data) return;
+
+  setText("auditFilasTotales", data.filas_totales);
+  setText("auditSolicitudes", data.solicitudes);
+  setText("auditActivos", data.activos);
+  setText("auditCesados", data.cesados);
+  setText("auditModeloSi", data.modelo_seguro_si);
+  setText("auditModeloNo", data.modelo_seguro_no);
+
+  const table = document.getElementById("tablaTicketAudit");
+
+  if (!data.detalle || !data.detalle.length) {
+    table.innerHTML = `<tr><td class="empty">Sin detalle</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr>
+      <th>DNI</th>
+      <th>Estado</th>
+    </tr>
+    ${data.detalle.map(i => `
+      <tr>
+        <td>${i.dni}</td>
+        <td>${i.estado}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderPivotTable(data) {
+  const table = document.getElementById("tablaPivot");
+
+  if (!data || !data.length) {
+    table.innerHTML = `<tr><td class="empty">Sin datos</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr>
+      <th>Area</th>
+      <th>Centro</th>
+      <th>Total</th>
+    </tr>
+    ${data.map(i => `
+      <tr>
+        <td>${i.area}</td>
+        <td>${i.centro_costo}</td>
+        <td>${i.total}</td>
+      </tr>
+    `).join("")}
+  `;
+}
 
 function setSearchSectionVisible(v) {
   const section = document.getElementById("searchResultsSection");
