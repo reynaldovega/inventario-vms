@@ -3,13 +3,31 @@ const apiBase = window.location.origin;
 let currentResults = [];
 let currentUser = null;
 
+// =========================
+// 🔧 UTIL
+// =========================
 function setText(id, value) {
-  document.getElementById(id).textContent = value ?? "0";
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? "0";
 }
 
 async function jsonFetch(url, options = {}) {
-  const response = await fetch(url, { credentials: "same-origin", ...options });
-  if (!response.ok) throw new Error("Error");
+  const headers = { ...(options.headers || {}) };
+
+  if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Error en request");
+  }
+
   return response.json();
 }
 
@@ -40,7 +58,7 @@ async function buscar() {
   if (!query.includes(",")) {
     try {
       const audit = await jsonFetch(
-        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
+        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}`
       );
       renderTicketAudit(audit);
     } catch {
@@ -77,7 +95,11 @@ function limpiar() {
 // 📊 DASHBOARD
 // =========================
 async function refreshSearchDashboard(query, tipoEntorno, status) {
-  const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
+  const params = new URLSearchParams({
+    q: query,
+    tipo_entorno: tipoEntorno,
+    status,
+  });
 
   const dashboard = await jsonFetch(
     `${apiBase}/search-dashboard?${params.toString()}`
@@ -98,6 +120,7 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
 // =========================
 function renderMainTable(data) {
   const table = document.getElementById("tablaResultados");
+
   if (!data.length) {
     table.innerHTML = `<tr><td class="empty">Sin resultados</td></tr>`;
     return;
@@ -128,7 +151,10 @@ function renderTickets(items) {
 
   table.innerHTML = `
     <tr>
-      <th>Ticket</th><th>Solicitudes</th><th>Activos</th><th>Cesados</th>
+      <th>Ticket</th>
+      <th>Solicitudes</th>
+      <th>Activos</th>
+      <th>Cesados</th>
     </tr>
     ${items.map(i => `
       <tr>
@@ -147,7 +173,8 @@ function renderPivotTable() {}
 function renderTicketAudit() {}
 
 function setSearchSectionVisible(v) {
-  document.getElementById("searchResultsSection").classList.toggle("hidden", !v);
+  const section = document.getElementById("searchResultsSection");
+  if (section) section.classList.toggle("hidden", !v);
 }
 
 // =========================
@@ -162,7 +189,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 🔥 ESTO FALTABA
   console.log("🔥 App cargada correctamente");
 });
 </script>
