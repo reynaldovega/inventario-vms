@@ -733,68 +733,6 @@
       });
     }
 
-async function cargarInicial() {
-  try {
-    const data = await jsonFetch(`${apiBase}/dashboard`);
-
-    setText("totalRegistros", data.total_registros);
-    setText("totalActivos", data.total_activos);
-    setText("totalCesados", data.total_cesados);
-    setText("ticketsUnicos", data.tickets_unicos);
-
-    setText("asignadosServicio", data.asignados_servicio);
-    setText("sedeCamana", data.sede_camana);
-    setText("sedeChota", data.sede_chota);
-    setText("sedeCentroCivico", data.sede_centro_civico);
-    setText("activosExcluidos", data.activos_excluidos);
-
-    renderAreas(data.por_area || []);
-    renderCentros(data.por_centro_costo || []);
-    renderTickets(data.por_ticket || []);
-
-    document.getElementById("fileMeta").textContent =
-      `Base activa: ${data.archivo}`;
-
-  } catch (e) {
-    console.error("Error cargando dashboard:", e);
-  }
-}
-async function subirArchivo() {
-  const input = document.getElementById("fileInput");
-  const file = input.files[0];
-
-  if (!file) {
-    alert("Selecciona un archivo primero");
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  try {
-    const response = await fetch(`${apiBase}/upload`, {
-      method: "POST",
-      body: formData,
-      credentials: "same-origin"
-    });
-
-    if (!response.ok) {
-      throw new Error("Error al subir archivo");
-    }
-
-    const data = await response.json();
-
-    alert("✅ Archivo cargado correctamente");
-
-    // 🔥 recargar dashboard
-    await cargarInicial();
-
-  } catch (error) {
-    console.error(error);
-    alert("❌ Error al subir archivo");
-  }
-}
-
     async function loadSession() {
       try {
         currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
@@ -841,58 +779,372 @@ async function subirArchivo() {
       setSearchSectionVisible(false);
     }
 
-// =========================
-// 🔍 BUSCAR
-// =========================
+    async function descargarAsignacionesRemotas() {
+      if (!currentUser || currentUser.role !== "admin") {
+        alert("Solo el administrador puede descargar este Excel.");
+        return;
+      }
+
+      const query = document.getElementById("search").value.trim();
+      const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
+      const status = document.getElementById("statusFilter").value;
+      const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
+      const response = await fetch(`${apiBase}/export-search-assignments?${params.toString()}`, {
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        alert("No se pudo descargar el Excel filtrado.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "asignaciones_remotas_filtradas.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
+    async function descargarSegmento(segment) {
+      if (!currentUser || currentUser.role !== "admin") {
+        alert("Solo el administrador puede descargar este Excel.");
+        return;
+      }
+
+      const params = new URLSearchParams({ segment, ...currentFilters() });
+      const response = await fetch(`${apiBase}/export-card?${params.toString()}`, {
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        alert("No se pudo descargar el Excel de esta tarjeta.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${segment}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
+    function renderMainTable(data) {
+      const table = document.getElementById("tablaResultados");
+
+      if (!data.length) {
+        table.innerHTML = `<tr><td class="empty">No se encontraron registros con ese criterio.</td></tr>`;
+        return;
+      }
+
+      const headers = [
+        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+      ];
+
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const rows = data.map(item => `
+        <tr>
+          <td>${badgeEstado(item.estado)}</td>
+          <td>${item.tipo_entorno || "-"}</td>
+          <td>${item.so || "-"}</td>
+          <td>${item.dni || "-"}</td>
+          <td>${item.nombre_completo || "-"}</td>
+          <td>${item.ip || "-"}</td>
+          <td>${item.hostname || "-"}</td>
+          <td>${item.ticket || "-"}</td>
+          <td>${item.area || "-"}</td>
+          <td>${item.centro_costo || "-"}</td>
+          <td>${item.fecha_conexion || "-"}</td>
+          <td>${item.fecha_asignacion || "-"}</td>
+          <td>${item.modelo_seguro || "-"}</td>
+        </tr>
+      `).join("");
+
+      table.innerHTML = head + rows;
+    }
+
+    function renderMiniTable(id, headers, rows, emptyLabel) {
+      const table = document.getElementById(id);
+      if (!rows.length) {
+        table.innerHTML = `<tr><td class="empty">${emptyLabel}</td></tr>`;
+        return;
+      }
+
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const body = rows.join("");
+      table.innerHTML = head + body;
+    }
+
+    function renderAreas(items) {
+      renderMiniTable(
+        "tablaAreas",
+        ["Area", "Cantidad"],
+        items.map(item => `<tr><td>${item.area}</td><td>${item.cantidad}</td></tr>`),
+        "Sin datos de area"
+      );
+    }
+
+    function renderCentros(items) {
+      renderMiniTable(
+        "tablaCentros",
+        ["Centro", "Cantidad"],
+        items.map(item => `<tr><td>${item.centro_costo}</td><td>${item.cantidad}</td></tr>`),
+        "Sin datos de centro de costo"
+      );
+    }
+
+   function renderTickets(items) {
+  renderMiniTable(
+    "tablaTickets",
+    ["Ticket", "Solicitudes ticket + DNI", "Activos", "Cesados", "Mod. seguro SI", "Pers. nuevo NO", "Fecha conexion", "Fecha asignacion"],
+    items.map(item => `
+      <tr>
+        <td>${item.ticket || "-"}</td>
+        <td>${item.solicitudes ?? 0}</td>
+        <td>${item.activos ?? 0}</td>
+        <td>${item.cesados ?? 0}</td>
+        <td>${item.modelo_seguro_si ?? 0}</td>
+        <td>${item.personal_nuevo_no ?? 0}</td>
+        <td>${item.fecha_conexion || "-"}</td>
+        <td>${item.fecha_asignacion || "-"}</td>
+      </tr>
+    `),
+    "Sin tickets para mostrar"
+  );
+}
+
+    function renderPivotTable(items) {
+      const table = document.getElementById("tablaPivot");
+      if (!items.length) {
+        table.innerHTML = `<tr><td class="empty">No hay asignaciones remotas validas para esta busqueda.</td></tr>`;
+        return;
+      }
+
+      const headers = ["Area", "Centro de costo", "Cantidad IPs", "IPs unicas", "DNI unicos", "Tickets unicos", "Windows 10", "Windows 11"];
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const rows = items.map(item => `
+        <tr>
+          <td>${item.area || "-"}</td>
+          <td>${item.centro_costo || "-"}</td>
+          <td>${item.cantidad_ips ?? 0}</td>
+          <td>${item.ips_unicas ?? 0}</td>
+          <td>${item.usuarios_dni ?? 0}</td>
+          <td>${item.tickets_unicos ?? 0}</td>
+          <td>${item.windows_10 ?? 0}</td>
+          <td>${item.windows_11 ?? 0}</td>
+        </tr>
+      `).join("");
+      table.innerHTML = head + rows;
+    }
+
+    function renderTicketAudit(data) {
+      const section = document.getElementById("ticketAuditSection");
+      if (!data || !data.ticket) {
+        section.classList.add("hidden");
+        document.getElementById("tablaTicketAudit").innerHTML = "";
+        return;
+      }
+
+      section.classList.remove("hidden");
+      document.getElementById("ticketAuditInfo").textContent = `Revision del ticket ${data.ticket}`;
+      setText("auditFilasTotales", data.resumen.filas_totales);
+      setText("auditSolicitudes", data.resumen.solicitudes_ticket_dni);
+      setText("auditActivos", data.resumen.activos);
+      setText("auditCesados", data.resumen.cesados);
+      setText("auditModeloSi", data.resumen.modelo_seguro_si_activo);
+      setText("auditModeloNo", data.resumen.modelo_seguro_no_activo);
+
+      const table = document.getElementById("tablaTicketAudit");
+      if (!data.filas.length) {
+        table.innerHTML = `<tr><td class="empty">No hay filas para auditar en este ticket.</td></tr>`;
+        return;
+      }
+
+      const headers = [
+        "DNI", "IP", "Hostname", "Arquitectura", "Area", "Centro de costo",
+        "Fecha conexion", "Fecha asignacion", "Modelo seguro", "Cuenta solicitud", "Cuenta activo", "Cuenta cesado", "Motivo"
+      ];
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const rows = data.filas.map(item => `
+        <tr>
+          <td>${item.dni || "-"}</td>
+          <td>${item.ip || "-"}</td>
+          <td>${item.hostname || "-"}</td>
+          <td>${item.arquitectura || "-"}</td>
+          <td>${item.area || "-"}</td>
+          <td>${item.centro_costo || "-"}</td>
+          <td>${item.fecha_conexion || "-"}</td>
+          <td>${item.fecha_asignacion || "-"}</td>
+          <td>${item.modelo_seguro || "-"}</td>
+          <td>${item.cuenta_solicitud}</td>
+          <td>${item.cuenta_activo}</td>
+          <td>${item.cuenta_cesado}</td>
+          <td>${item.motivo_conteo}</td>
+        </tr>
+      `).join("");
+      table.innerHTML = head + rows;
+    }
+
+    function setSearchSectionVisible(visible) {
+      document.getElementById("searchInsights").classList.toggle("hidden", !visible);
+      document.getElementById("pivotSection").classList.toggle("hidden", !visible);
+      document.getElementById("searchResultsSection").classList.toggle("hidden", !visible);
+    }
+
+    async function refreshSearchDashboard(query, tipoEntorno, status) {
+  const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
+
+  const dashboard = await jsonFetch(
+    `${apiBase}/search-dashboard?${params.toString()}`
+  );
+
+  const pivot = await jsonFetch(
+    `${apiBase}/search-pivot?${params.toString()}&limit=200`
+  );
+
+   setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
+   setText("searchIpsUnicas", dashboard.ips_unicas);
+   setText("searchDniUnicos", dashboard.usuarios_con_dni);
+
+   renderAreas(dashboard.por_area || []);
+   renderCentros(dashboard.por_centro_costo || []);
+   renderPivotTable(pivot || []);
+
+  // 🔥 ESTA LÍNEA FALTABA
+   renderTickets(dashboard.por_ticket || []);
+}
+
+    async function refreshDashboard() {
+      const status = document.getElementById("statusFilter").value;
+      const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
+      const dashboard = await jsonFetch(
+      `${apiBase}/dashboard?status=todos&tipo_entorno=${tipoEntorno}`
+       );
+      setText("totalRegistros", dashboard.total_registros);
+      setText("totalActivos", dashboard.total_activos);
+      setText("totalCesados", dashboard.total_cesados);
+      setText("ticketsUnicos", dashboard.tickets_unicos);
+      setText("asignadosServicio", dashboard.asignados_servicio);
+      setText("sedeCamana", dashboard.sede_camana);
+      setText("sedeChota", dashboard.sede_chota);
+      setText("sedeCentroCivico", dashboard.sede_centro_civico);
+      setText("activosExcluidos", dashboard.activos_excluidos);
+      document.getElementById("fileMeta").textContent = dashboard.archivo
+        ? `Base activa: ${dashboard.archivo}`
+        : "No hay una base cargada todavia.";
+      renderAreas(dashboard.por_area || []);
+      renderCentros(dashboard.por_centro_costo || []);
+      renderTickets(dashboard.por_ticket || []);
+    }
+
+    async function cargarInicial() {
+      await refreshDashboard();
+      currentResults = [];
+      setText("totalResultados", 0);
+      document.getElementById("resultsInfo").textContent = "Escribe una busqueda para ver resultados.";
+      document.getElementById("tablaResultados").innerHTML = "";
+      document.getElementById("tablaPivot").innerHTML = "";
+      renderTicketAudit(null);
+      renderAreas([]);
+      renderCentros([]);
+      renderTickets([]);
+      setSearchSectionVisible(false);
+    }
+
+    async function subirArchivo() {
+      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) {
+        alert("Tu rol no tiene permisos para subir archivos.");
+        return;
+      }
+
+      const input = document.getElementById("fileInput");
+      const file = input.files[0];
+
+      if (!file) {
+        alert("Selecciona un archivo Excel antes de subirlo.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await jsonFetch(`${apiBase}/upload`, {
+          method: "POST",
+          headers: {},
+          body: formData,
+        });
+        await refreshDashboard();
+        await buscar();
+        alert(`${response.mensaje}. Registros procesados: ${response.registros}`);
+      } catch (error) {
+        console.error(error);
+        alert("No se pudo subir el archivo.");
+      }
+    }
+
+
 async function buscar() {
+function limpiar() {
+  document.getElementById("search").value = "";
+
+  currentResults = [];
+  renderMainTable([]);
+
+  setText("totalResultados", 0);
+  document.getElementById("resultsInfo").textContent = "";
+
+  renderTickets([]);
+  renderAreas([]);
+  renderCentros([]);
+  renderPivotTable([]);
+
+  setSearchSectionVisible(false);
+}
   const query = document.getElementById("search").value.trim();
   const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
   const status = document.getElementById("statusFilter").value;
 
   if (!query) return;
 
-  try {
-    setSearchSectionVisible(true);
-    document.getElementById("pivotSection").classList.remove("hidden");
-    document.getElementById("ticketAuditSection").classList.remove("hidden");
-    document.getElementById("searchInsights").classList.remove("hidden");
+  const data = await jsonFetch(
+    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
+  );
 
-    const data = await jsonFetch(
-      `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
-    );
+  currentResults = data;
 
-    currentResults = data;
+  renderMainTable(data);
 
-    renderMainTable(data);
-    setText("totalResultados", data.length);
+  setText("totalResultados", data.length);
 
-    document.getElementById("resultsInfo").textContent =
-      `Se encontraron ${data.length} registros`;
+  document.getElementById("resultsInfo").textContent =
+    `Se encontraron ${data.length} registros`;
 
-    await refreshSearchDashboard(query, tipoEntorno, status);
+  await refreshSearchDashboard(query, tipoEntorno, status);
 
-    if (!query.includes(",")) {
-      try {
-        const audit = await jsonFetch(
-          `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}`
-        );
-        renderTicketAudit(audit);
-      } catch {
-        renderTicketAudit(null);
-      }
-    } else {
+  if (!query.includes(",")) {
+    try {
+      const audit = await jsonFetch(
+        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
+      );
+      renderTicketAudit(audit);
+    } catch {
       renderTicketAudit(null);
     }
-
-  } catch (error) {
-    console.error("❌ ERROR:", error);
-    alert("Error al buscar: " + error.message);
+  } else {
+    renderTicketAudit(null);
   }
+
+  setSearchSectionVisible(true);
 }
 
-// =========================
-// 🧹 LIMPIAR
-// =========================
 function limpiar() {
   document.getElementById("search").value = "";
 
@@ -910,194 +1162,73 @@ function limpiar() {
   setSearchSectionVisible(false);
 }
 
-// =========================
-// 📊 DASHBOARD
-// =========================
-async function refreshSearchDashboard(query, tipoEntorno, status) {
-  const params = new URLSearchParams({
-    q: query,
-    tipo_entorno: tipoEntorno,
-    status,
-  });
+  const query = document.getElementById("search").value.trim();
+  const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
+  const status = document.getElementById("statusFilter").value;
 
-  const dashboard = await jsonFetch(
-    `${apiBase}/search-dashboard?${params.toString()}`
+  if (!query) return;
+
+  const data = await jsonFetch(
+    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
   );
 
-  const pivot = await jsonFetch(
-    `${apiBase}/search-pivot?${params.toString()}`
-  );
+  currentResults = data;
 
-  renderAreas(dashboard.por_area || []);
-  renderCentros(dashboard.por_centro_costo || []);
-  renderTickets(dashboard.por_ticket || []);
-  renderPivotTable(pivot || []);
-}
+  renderMainTable(data);
 
-// =========================
-// 🧩 RENDERS
-// =========================
+  setText("totalResultados", data.length);
 
-function renderTickets(items) {
-  const table = document.getElementById("tablaTickets");
+  document.getElementById("resultsInfo").textContent =
+    `Se encontraron ${data.length} registros`;
 
-  if (!items.length) {
-    table.innerHTML = `<tr><td class="empty">Sin tickets</td></tr>`;
-    return;
+  await refreshSearchDashboard(query, tipoEntorno, status);
+
+  if (!query.includes(",")) {
+    try {
+      const audit = await jsonFetch(
+        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
+      );
+      renderTicketAudit(audit);
+    } catch {
+      renderTicketAudit(null);
+    }
+  } else {
+    renderTicketAudit(null);
   }
 
-  table.innerHTML = `
-    <tr>
-      <th>Ticket</th>
-      <th>Solicitudes</th>
-      <th>Activos</th>
-      <th>Cesados</th>
-    </tr>
-    ${items.map(i => `
-      <tr>
-        <td>${i.ticket}</td>
-        <td>${i.solicitudes}</td>
-        <td>${i.activos}</td>
-        <td>${i.cesados}</td>
-      </tr>
-    `).join("")}
-  `;
+  setSearchSectionVisible(true);
 }
 
-function renderMainTable(data) {
-  const table = document.getElementById("tablaResultados");
-  if (!data.length) {
-    table.innerHTML = `<tr><td class="empty">Sin resultados</td></tr>`;
-    return;
-  }
-
-  table.innerHTML = `
-    <tr>
-      <th>DNI</th><th>IP</th><th>Hostname</th><th>Ticket</th>
-    </tr>
-    ${data.map(d => `
-      <tr>
-        <td>${d.dni || "-"}</td>
-        <td>${d.ip || "-"}</td>
-        <td>${d.hostname || "-"}</td>
-        <td>${d.ticket || "-"}</td>
-      </tr>
-    `).join("")}
-  `;
-}
-
-function renderCentros(items) {
-  const table = document.getElementById("tablaCentros");
-
-  if (!items.length) {
-    table.innerHTML = `<tr><td class="empty">Sin datos</td></tr>`;
-    return;
-  }
-
-  table.innerHTML = `
-    <tr><th>Centro</th><th>Cantidad</th></tr>
-    ${items.map(i => `
-      <tr>
-        <td>${i.centro_costo}</td>
-        <td>${i.total}</td>
-      </tr>
-    `).join("")}
-  `;
-}
-
-function renderAreas(items) {
-  const table = document.getElementById("tablaAreas");
-
-  if (!items.length) {
-    table.innerHTML = `<tr><td class="empty">Sin datos</td></tr>`;
-    return;
-  }
-
-  table.innerHTML = `
-    <tr><th>Area</th><th>Cantidad</th></tr>
-    ${items.map(i => `
-      <tr>
-        <td>${i.area}</td>
-        <td>${i.total}</td>
-      </tr>
-    `).join("")}
-  `;
-}
-
-function renderTicketAudit(data) {
-  if (!data) return;
-
-  setText("auditFilasTotales", data.filas_totales);
-  setText("auditSolicitudes", data.solicitudes);
-  setText("auditActivos", data.activos);
-  setText("auditCesados", data.cesados);
-  setText("auditModeloSi", data.modelo_seguro_si);
-  setText("auditModeloNo", data.modelo_seguro_no);
-
-  const table = document.getElementById("tablaTicketAudit");
-
-  if (!data.detalle || !data.detalle.length) {
-    table.innerHTML = `<tr><td class="empty">Sin detalle</td></tr>`;
-    return;
-  }
-
-  table.innerHTML = `
-    <tr>
-      <th>DNI</th>
-      <th>Estado</th>
-    </tr>
-    ${data.detalle.map(i => `
-      <tr>
-        <td>${i.dni}</td>
-        <td>${i.estado}</td>
-      </tr>
-    `).join("")}
-  `;
-}
-
-function renderPivotTable(data) {
-  const table = document.getElementById("tablaPivot");
-
-  if (!data || !data.length) {
-    table.innerHTML = `<tr><td class="empty">Sin datos</td></tr>`;
-    return;
-  }
-
-  table.innerHTML = `
-    <tr>
-      <th>Area</th>
-      <th>Centro</th>
-      <th>Total</th>
-    </tr>
-    ${data.map(i => `
-      <tr>
-        <td>${i.area}</td>
-        <td>${i.centro_costo}</td>
-        <td>${i.total}</td>
-      </tr>
-    `).join("")}
-  `;
-}
-
-function setSearchSectionVisible(v) {
-  const section = document.getElementById("searchResultsSection");
-  if (section) section.classList.toggle("hidden", !v);
-}
-
-// =========================
-// 🚀 INIT
-// =========================
-document.addEventListener("DOMContentLoaded", () => {
-  const input = document.getElementById("search");
-
-  if (input) {
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") buscar();
+    document.getElementById("search").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        buscar();
+      }
     });
-  }
 
-  loadSession(); // 🔥 ESTO FALTABA
+    document.getElementById("loginPassword").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        login();
+      }
+    });
 
-  console.log("🔥 App cargada correctamente");
-});
-</script>
+    document.getElementById("statusFilter").addEventListener("change", () => {
+      buscar();
+    });
+
+    document.getElementById("tipoEntornoFilter").addEventListener("change", () => {
+      buscar();
+    });
+
+    document.querySelectorAll("[data-export-segment]").forEach((card) => {
+      card.addEventListener("click", () => {
+        if (!card.classList.contains("exportable")) {
+          return;
+        }
+        descargarSegmento(card.dataset.exportSegment);
+      });
+    });
+
+    loadSession();
+  </script>
+</body>
+</html>
