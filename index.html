@@ -808,6 +808,9 @@
       link.remove();
       window.URL.revokeObjectURL(url);
     }
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("🔥 App cargada correctamente");
+});
 
     async function descargarSegmento(segment) {
       if (!currentUser || currentUser.role !== "admin") {
@@ -1089,9 +1092,40 @@
         alert("No se pudo subir el archivo.");
       }
     }
-
-
 async function buscar() {
+  const query = document.getElementById("search").value.trim();
+  const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
+  const status = document.getElementById("statusFilter").value;
+
+  if (!query) return;
+
+  const data = await jsonFetch(
+    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
+  );
+
+  currentResults = data;
+
+  renderMainTable(data);
+  setText("totalResultados", data.length);
+
+  await refreshSearchDashboard(query, tipoEntorno, status);
+
+  // 🔥 AUDITORÍA AQUÍ (BIEN UBICADO)
+  if (!query.includes(",")) {
+    try {
+      const audit = await jsonFetch(
+        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
+      );
+      renderTicketAudit(audit);
+    } catch {
+      renderTicketAudit(null);
+    }
+  } else {
+    renderTicketAudit(null);
+  }
+
+  setSearchSectionVisible(true);
+}
 function limpiar() {
   document.getElementById("search").value = "";
 
@@ -1108,97 +1142,6 @@ function limpiar() {
 
   setSearchSectionVisible(false);
 }
-  const query = document.getElementById("search").value.trim();
-  const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
-  const status = document.getElementById("statusFilter").value;
-
-  if (!query) return;
-
-  const data = await jsonFetch(
-    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
-  );
-
-  currentResults = data;
-
-  renderMainTable(data);
-
-  setText("totalResultados", data.length);
-
-  document.getElementById("resultsInfo").textContent =
-    `Se encontraron ${data.length} registros`;
-
-  await refreshSearchDashboard(query, tipoEntorno, status);
-
-  if (!query.includes(",")) {
-    try {
-      const audit = await jsonFetch(
-        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
-      );
-      renderTicketAudit(audit);
-    } catch {
-      renderTicketAudit(null);
-    }
-  } else {
-    renderTicketAudit(null);
-  }
-
-  setSearchSectionVisible(true);
-}
-
-function limpiar() {
-  document.getElementById("search").value = "";
-
-  currentResults = [];
-  renderMainTable([]);
-
-  setText("totalResultados", 0);
-  document.getElementById("resultsInfo").textContent = "";
-
-  renderTickets([]);
-  renderAreas([]);
-  renderCentros([]);
-  renderPivotTable([]);
-
-  setSearchSectionVisible(false);
-}
-
-  const query = document.getElementById("search").value.trim();
-  const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
-  const status = document.getElementById("statusFilter").value;
-
-  if (!query) return;
-
-  const data = await jsonFetch(
-    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
-  );
-
-  currentResults = data;
-
-  renderMainTable(data);
-
-  setText("totalResultados", data.length);
-
-  document.getElementById("resultsInfo").textContent =
-    `Se encontraron ${data.length} registros`;
-
-  await refreshSearchDashboard(query, tipoEntorno, status);
-
-  if (!query.includes(",")) {
-    try {
-      const audit = await jsonFetch(
-        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
-      );
-      renderTicketAudit(audit);
-    } catch {
-      renderTicketAudit(null);
-    }
-  } else {
-    renderTicketAudit(null);
-  }
-
-  setSearchSectionVisible(true);
-}
-
     document.getElementById("search").addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         buscar();
@@ -1219,16 +1162,14 @@ function limpiar() {
       buscar();
     });
 
-    document.querySelectorAll("[data-export-segment]").forEach((card) => {
-      card.addEventListener("click", () => {
-        if (!card.classList.contains("exportable")) {
-          return;
-        }
-        descargarSegmento(card.dataset.exportSegment);
-      });
-    });
+document.querySelectorAll("[data-export-segment]").forEach((card) => {
+  card.addEventListener("click", () => {
+    if (!card.classList.contains("exportable")) return;
+    descargarSegmento(card.dataset.exportSegment);
+  });
+});
 
-    loadSession();
+loadSession();
   </script>
 </body>
 </html>
