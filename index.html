@@ -653,6 +653,51 @@ function setText(id, value) {
   if (el) el.textContent = value ?? "0";
 }
 
+async function login() {
+  const username = document.getElementById("loginUsername").value.trim();
+  const password = document.getElementById("loginPassword").value.trim();
+  const error = document.getElementById("authError");
+
+  error.textContent = "";
+
+  if (!username || !password) {
+    error.textContent = "Ingrese usuario y contraseña";
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append("username", username);
+    formData.append("password", password);
+
+    const res = await jsonFetch(`${apiBase}/login`, {
+      method: "POST",
+      body: formData
+    });
+
+    currentUser = res;
+
+    document.getElementById("authOverlay").classList.add("hidden");
+
+    document.getElementById("sessionInfo").textContent =
+      `Usuario: ${res.username} | Rol: ${res.rol}`;
+
+    document.getElementById("logoutButton").classList.remove("hidden");
+
+  } catch (e) {
+    error.textContent = "Credenciales incorrectas";
+  }
+}
+   
+function logout() {
+  currentUser = null;
+
+  document.getElementById("authOverlay").classList.remove("hidden");
+  document.getElementById("sessionInfo").textContent = "Sin sesion iniciada";
+  document.getElementById("logoutButton").classList.add("hidden");
+}
+
+
 async function jsonFetch(url, options = {}) {
   const headers = { ...(options.headers || {}) };
 
