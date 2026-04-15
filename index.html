@@ -640,83 +640,144 @@
     </section>
   </div>
 
-<script>
-const apiBase = window.location.origin;
-let currentResults = [];
-let currentUser = null;
+  <script>
+    const apiBase = window.location.origin;
+    let currentResults = [];
+    let currentUser = null;
 
-// =========================
-// 🔧 UTIL
-// =========================
-function setText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value ?? "0";
-}
+    function currentFilters() {
+      return {
+        q: document.getElementById("search").value.trim(),
+        tipo_entorno: document.getElementById("tipoEntornoFilter").value,
+        status: document.getElementById("statusFilter").value,
+      };
+    }
 
-async function login() {
-  const username = document.getElementById("loginUsername").value.trim();
-  const password = document.getElementById("loginPassword").value.trim();
-  const error = document.getElementById("authError");
+    async function jsonFetch(url, options = {}) {
+      const headers = { ...(options.headers || {}) };
+      if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+      }
 
-  error.textContent = "";
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        ...options,
+        headers,
+      });
+      if (!response.ok) {
+        let message = `Error ${response.status}`;
+        try {
+          const payload = await response.json();
+          message = payload.detail || payload.mensaje || message;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      return response.json();
+    }
 
-  if (!username || !password) {
-    error.textContent = "Ingrese usuario y contraseña";
-    return;
-  }
+    function setText(id, value) {
+      document.getElementById(id).textContent = value ?? "0";
+    }
 
-  try {
-    const formData = new FormData();
-    formData.append("username", username);
-    formData.append("password", password);
+    function badgeEstado(estado) {
+      const css = estado === "ACTIVO" ? "activo" : "cesado";
+      return `<span class="badge ${css}">${estado || "SIN DATO"}</span>`;
+    }
 
-    const res = await jsonFetch(`${apiBase}/login`, {
-      method: "POST",
-      body: formData
-    });
+    function roleLabel(role) {
+      if (role === "admin") return "Administrador";
+      if (role === "tecnologia") return "Tecnologia / Ingenieria";
+      if (role === "invitado") return "Invitado lectura";
+      return role || "Sin rol";
+    }
 
-    currentUser = res;
+    function applyRolePermissions() {
+      const uploadButton = document.getElementById("uploadButton");
+      const fileInput = document.getElementById("fileInput");
+      const note = document.getElementById("uploadPermissionNote");
+      const sessionInfo = document.getElementById("sessionInfo");
+      const logoutButton = document.getElementById("logoutButton");
+      const exportButton = document.getElementById("exportAssignmentsButton");
 
-    document.getElementById("authOverlay").classList.add("hidden");
+      if (!currentUser) {
+        uploadButton.disabled = true;
+        fileInput.disabled = true;
+        note.textContent = "";
+        sessionInfo.textContent = "Sin sesion iniciada";
+        logoutButton.classList.add("hidden");
+        exportButton.classList.add("hidden");
+        document.querySelectorAll("[data-export-segment]").forEach((card) => {
+          card.classList.remove("exportable");
+          card.removeAttribute("title");
+        });
+        return;
+      }
 
-    document.getElementById("sessionInfo").textContent =
-      `Usuario: ${res.username} | Rol: ${res.rol}`;
+      const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
+      const canExport = currentUser.role === "admin";
+      uploadButton.disabled = !canUpload;
+      fileInput.disabled = !canUpload;
+      note.textContent = canUpload
+        ? "Tu rol permite cargar nuevas bases."
+        : "Modo lectura: este rol no puede subir ni modificar la base.";
+      sessionInfo.textContent = `${currentUser.display_name} | Rol: ${roleLabel(currentUser.role)}`;
+      logoutButton.classList.remove("hidden");
+      exportButton.classList.toggle("hidden", !canExport);
+      document.querySelectorAll("[data-export-segment]").forEach((card) => {
+        card.classList.toggle("exportable", canExport);
+        if (canExport) {
+          card.setAttribute("title", "Haz clic para descargar este grupo en Excel");
+        } else {
+          card.removeAttribute("title");
+        }
+      });
+    }
 
-    document.getElementById("logoutButton").classList.remove("hidden");
+    async function loadSession() {
+      try {
+        currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
+        document.getElementById("authOverlay").classList.add("hidden");
+        applyRolePermissions();
+        await cargarInicial();
+      } catch (_) {
+        currentUser = null;
+        applyRolePermissions();
+        document.getElementById("authOverlay").classList.remove("hidden");
+      }
+    }
 
-  } catch (e) {
-    error.textContent = "Credenciales incorrectas";
-  }
-}
-   
-function logout() {
-  currentUser = null;
+    async function login() {
+      const username = document.getElementById("loginUsername").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const errorBox = document.getElementById("authError");
+      errorBox.textContent = "";
 
-  document.getElementById("authOverlay").classList.remove("hidden");
-  document.getElementById("sessionInfo").textContent = "Sin sesion iniciada";
-  document.getElementById("logoutButton").classList.add("hidden");
-}
+      try {
+        currentUser = await jsonFetch(`${apiBase}/login`, {
+          method: "POST",
+          body: JSON.stringify({ username, password }),
+        });
+        document.getElementById("authOverlay").classList.add("hidden");
+        document.getElementById("loginPassword").value = "";
+        applyRolePermissions();
+        await cargarInicial();
+      } catch (error) {
+        errorBox.textContent = error.message;
+      }
+    }
 
-
-async function jsonFetch(url, options = {}) {
-  const headers = { ...(options.headers || {}) };
-
-  if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    throw new Error("Error en request");
-  }
-
-  return response.json();
-}
+    async function logout() {
+      await jsonFetch(`${apiBase}/logout`, { method: "POST", headers: {} });
+      currentUser = null;
+      applyRolePermissions();
+      document.getElementById("authOverlay").classList.remove("hidden");
+      document.getElementById("tablaResultados").innerHTML = "";
+      document.getElementById("tablaPivot").innerHTML = "";
+      renderAreas([]);
+      renderCentros([]);
+      renderTickets([]);
+      setSearchSectionVisible(false);
+    }
 
 // =========================
 // 🔍 BUSCAR
