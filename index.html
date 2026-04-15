@@ -1,1095 +1,21 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inventario VMS</title>
-  <style>
-    :root {
-      --bg: #f3efe5;
-      --panel: rgba(255, 252, 246, 0.92);
-      --panel-strong: #fffaf1;
-      --line: #d8cbb7;
-      --text: #22201b;
-      --muted: #6e665a;
-      --brand: #1e6f5c;
-      --brand-dark: #14493d;
-      --accent: #f29f05;
-      --danger: #c65b3d;
-      --shadow: 0 18px 45px rgba(76, 56, 33, 0.12);
-      --radius: 22px;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(242, 159, 5, 0.18), transparent 30%),
-        radial-gradient(circle at bottom right, rgba(30, 111, 92, 0.16), transparent 28%),
-        linear-gradient(180deg, #f7f3ea 0%, #efe7da 100%);
-      min-height: 100vh;
-    }
-
-    .shell {
-      max-width: 1380px;
-      margin: 0 auto;
-      padding: 32px 20px 48px;
-    }
-
-    .hero {
-      background: linear-gradient(135deg, rgba(255,250,241,0.95), rgba(250,243,230,0.9));
-      border: 1px solid rgba(216, 203, 183, 0.8);
-      box-shadow: var(--shadow);
-      border-radius: 30px;
-      padding: 28px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .auth-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(26, 22, 16, 0.42);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      z-index: 30;
-      backdrop-filter: blur(8px);
-    }
-
-    .auth-card {
-      width: min(460px, 100%);
-      background: linear-gradient(135deg, rgba(255,250,241,0.98), rgba(247,239,225,0.96));
-      border: 1px solid rgba(216, 203, 183, 0.8);
-      border-radius: 28px;
-      box-shadow: var(--shadow);
-      padding: 24px;
-    }
-
-    .auth-card h2 {
-      margin: 0 0 8px;
-      font-size: 1.5rem;
-    }
-
-    .auth-card p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-
-    .auth-form {
-      display: grid;
-      gap: 12px;
-      margin-top: 18px;
-    }
-
-    .auth-error {
-      margin-top: 10px;
-      color: var(--danger);
-      font-size: 0.92rem;
-      min-height: 20px;
-    }
-
-    .topbar {
-      margin-bottom: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      background: rgba(255, 250, 241, 0.92);
-      border: 1px solid rgba(216, 203, 183, 0.75);
-      color: var(--brand-dark);
-      font-size: 0.92rem;
-      flex-wrap: wrap;
-    }
-
-    .hero::after {
-      content: "";
-      position: absolute;
-      width: 220px;
-      height: 220px;
-      border-radius: 50%;
-      background: rgba(30, 111, 92, 0.08);
-      right: -60px;
-      top: -80px;
-    }
-
-    h1 {
-      margin: 0 0 10px;
-      font-size: clamp(2rem, 4vw, 3.2rem);
-      line-height: 1;
-      letter-spacing: -0.04em;
-    }
-
-    .subtitle {
-      margin: 0;
-      max-width: 880px;
-      color: var(--muted);
-      font-size: 1rem;
-      line-height: 1.6;
-    }
-
-    .toolbar {
-      margin-top: 24px;
-      display: grid;
-      grid-template-columns: 1.2fr 2fr;
-      gap: 18px;
-    }
-
-    .panel {
-      background: var(--panel);
-      border: 1px solid rgba(216, 203, 183, 0.75);
-      border-radius: var(--radius);
-      padding: 18px;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-    }
-
-    .panel h2,
-    .panel h3 {
-      margin: 0 0 8px;
-      font-size: 1rem;
-    }
-
-    .panel p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-
-    .upload-row,
-    .search-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 14px;
-      align-items: center;
-    }
-
-    .search-row input[type="text"] {
-      flex: 1;
-      min-width: 260px;
-    }
-
-    input[type="file"],
-    input[type="text"],
-    select,
-    button {
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      padding: 12px 14px;
-      font-size: 0.95rem;
-      font-family: inherit;
-    }
-
-    input[type="file"],
-    input[type="text"],
-    select {
-      background: white;
-      color: var(--text);
-    }
-
-    button {
-      background: var(--brand);
-      color: white;
-      border-color: transparent;
-      cursor: pointer;
-      transition: transform 0.15s ease, background 0.15s ease;
-    }
-
-    button:hover {
-      background: var(--brand-dark);
-      transform: translateY(-1px);
-    }
-
-    button.secondary {
-      background: white;
-      color: var(--brand-dark);
-      border-color: var(--line);
-    }
-
-    .file-meta {
-      margin-top: 12px;
-      font-size: 0.92rem;
-      color: var(--muted);
-    }
-
-    .cards {
-      margin-top: 22px;
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 14px;
-    }
-
-    .card {
-      background: var(--panel-strong);
-      border: 1px solid rgba(216, 203, 183, 0.9);
-      border-radius: 20px;
-      padding: 18px;
-      box-shadow: var(--shadow);
-    }
-
-    .card.exportable {
-      cursor: pointer;
-      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-    }
-
-    .card.exportable:hover {
-      transform: translateY(-2px);
-      border-color: rgba(30, 111, 92, 0.5);
-      box-shadow: 0 16px 35px rgba(30, 111, 92, 0.12);
-    }
-
-    .card span {
-      display: block;
-      font-size: 0.82rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    .card strong {
-      font-size: 1.9rem;
-      line-height: 1;
-    }
-
-    .grid {
-      margin-top: 22px;
-      display: grid;
-      grid-template-columns: 2.2fr 1fr;
-      gap: 18px;
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    .stack {
-      display: grid;
-      gap: 18px;
-    }
-
-    .section-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-
-    .section-head p {
-      font-size: 0.9rem;
-    }
-
-    .table-wrap {
-      overflow: auto;
-      border-radius: 18px;
-      border: 1px solid rgba(216, 203, 183, 0.9);
-      background: white;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 980px;
-    }
-
-    th, td {
-      padding: 12px 10px;
-      border-bottom: 1px solid #efe5d6;
-      text-align: left;
-      font-size: 0.92rem;
-      vertical-align: top;
-    }
-
-    th {
-      position: sticky;
-      top: 0;
-      background: #f8f1e5;
-      color: #4a4136;
-      z-index: 1;
-    }
-
-    tr:hover td {
-      background: #fff9ef;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-    }
-
-    .badge.activo {
-      background: rgba(30, 111, 92, 0.12);
-      color: var(--brand-dark);
-    }
-
-    .badge.cesado {
-      background: rgba(198, 91, 61, 0.14);
-      color: var(--danger);
-    }
-
-    .mini-table {
-      width: 100%;
-      min-width: 0;
-    }
-
-    .mini-table th,
-    .mini-table td {
-      font-size: 0.88rem;
-      padding: 10px 8px;
-    }
-
-    .empty {
-      padding: 24px;
-      text-align: center;
-      color: var(--muted);
-    }
-
-    .helper {
-      margin-top: 8px;
-      font-size: 0.88rem;
-      color: var(--muted);
-    }
-
-    .search-insights {
-      margin-top: 22px;
-    }
-
-    @media (max-width: 1100px) {
-      .toolbar,
-      .grid {
-        grid-template-columns: 1fr;
-      }
-
-      .cards {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 640px) {
-      .shell {
-        padding: 12px 10px 28px;
-      }
-
-      .hero,
-      .panel,
-      .card {
-        border-radius: 18px;
-      }
-
-      .cards {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-      }
-
-      .card {
-        padding: 14px;
-      }
-
-      .card span {
-        font-size: 0.7rem;
-        margin-bottom: 6px;
-      }
-
-      .card strong {
-        font-size: 1.55rem;
-      }
-
-      .topbar {
-        gap: 8px;
-      }
-
-      .pill,
-      #logoutButton {
-        width: 100%;
-        justify-content: center;
-      }
-
-      h1 {
-        font-size: 2.15rem;
-      }
-
-      .subtitle {
-        font-size: 0.95rem;
-      }
-
-      .search-row {
-        align-items: stretch;
-        flex-direction: column;
-      }
-
-      .search-row input[type="text"],
-      .search-row select,
-      .search-row button,
-      .upload-row input[type="file"],
-      .upload-row button {
-        width: 100%;
-      }
-
-      .upload-row {
-        flex-direction: column;
-        align-items: stretch;
-      }
-
-      .table-wrap {
-        border-radius: 14px;
-      }
-
-      th, td {
-        padding: 10px 8px;
-        font-size: 0.84rem;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="auth-overlay" id="authOverlay">
-    <div class="auth-card">
-      <h2>Acceso seguro</h2>
-      <p>Ingresa con tu usuario y contrasena para usar el inventario. El sistema distingue accesos de admin, tecnologia y modo lectura.</p>
-      <div class="auth-form">
-        <input type="text" id="loginUsername" placeholder="Usuario">
-        <input type="password" id="loginPassword" placeholder="Contrasena">
-        <button onclick="login()">Ingresar</button>
-      </div>
-      <div class="auth-error" id="authError"></div>
-    </div>
-  </div>
-
-  <div class="shell">
-    <div class="topbar">
-      <div class="pill" id="sessionInfo">Sin sesion iniciada</div>
-      <button class="secondary hidden" id="logoutButton" onclick="logout()">Cerrar sesion</button>
-    </div>
-
-    <section class="hero">
-      <h1>Inventario VMS</h1>
-      <p class="subtitle">
-        Web para subir la base principal, buscar por DNI, IP, hostname, ticket, area o centro de costo, y visualizar el estado del equipo virtual. Si la columna A tiene IP, el registro se considera activo; si esta vacia, queda como cesado.
-      </p>
-
-      <div class="toolbar">
-        <div class="panel">
-          <h2>Cargar archivo</h2>
-          <p>Sube una nueva base en Excel o trabaja con la base que ya esta en la carpeta.</p>
-          <div class="upload-row">
-            <input type="file" id="fileInput" accept=".xlsx,.xls">
-            <button id="uploadButton" onclick="subirArchivo()">Subir Excel</button>
-          </div>
-          <div class="helper" id="uploadPermissionNote"></div>
-          <div class="file-meta" id="fileMeta">Leyendo base actual...</div>
-        </div>
-
-        <div class="panel">
-          <h2>Buscador inteligente</h2>
-          <p>Escribe uno o varios datos en una sola caja. Si separas por coma, buscara cada valor en DNI, hostname, IP, ticket, area, centro de costo o Windows 10/11.</p>
-          <div class="search-row">
-            <input type="text" id="search" placeholder="Ejemplo: 44152710, SCCVCEM01TTO513, 10.132.15.56, 30706245, HABITAT, WINDOWS 10">
-            <select id="tipoEntornoFilter">
-              <option value="todos">TS y VMS</option>
-              <option value="ts">Solo TS</option>
-              <option value="vms">Solo VMS</option>
-            </select>
-            <select id="statusFilter">
-              <option value="todos">Todos</option>
-              <option value="activo">Solo activos</option>
-              <option value="cesado">Solo cesados</option>
-            </select>
-            <button onclick="buscar()">Buscar</button>
-            <button class="secondary" onclick="limpiar()">Limpiar</button>
-          </div>
-          <div class="helper">Ejemplo de uso: <strong>41107381, sccvdi, windows 10</strong>. El sistema buscara cada parte y mostrara los registros relacionados.</div>
-          <div class="helper">Columnas tomadas del Excel: A IP, D Area, E Centro de costo, F DNI, Q Hostname, X Ticket, Y Fecha conexion, Z Fecha asignacion, AA Modelo seguro.</div>
-        </div>
-      </div>
-
-      <div class="cards">
-        <div class="card" data-export-segment="asignados_servicio"><span>Asignados servicio</span><strong id="asignadosServicio">0</strong></div>
-        <div class="card" data-export-segment="sede_camana"><span>Sede Camana</span><strong id="sedeCamana">0</strong></div>
-        <div class="card" data-export-segment="sede_chota"><span>Sede Chota</span><strong id="sedeChota">0</strong></div>
-        <div class="card" data-export-segment="sede_centro_civico"><span>Centro Civico</span><strong id="sedeCentroCivico">0</strong></div>
-        <div class="card" data-export-segment="resultados"><span>Resultados</span><strong id="totalResultados">0</strong></div>
-      </div>
-
-      <div class="cards">
-        <div class="card" data-export-segment="total_registros"><span>Registros base</span><strong id="totalRegistros">0</strong></div>
-        <div class="card" data-export-segment="total_activos"><span>Activos con IP</span><strong id="totalActivos">0</strong></div>
-        <div class="card" data-export-segment="total_cesados"><span>Cesados</span><strong id="totalCesados">0</strong></div>
-        <div class="card"><span>Tickets unicos</span><strong id="ticketsUnicos">0</strong></div>
-        <div class="card" data-export-segment="activos_excluidos"><span>Excluidos operativos</span><strong id="activosExcluidos">0</strong></div>
-      </div>
-    </section>
-
-    <section class="search-insights hidden" id="searchInsights">
-      <div class="cards">
-        <div class="card" data-export-segment="search_asignaciones_remotas"><span>Asignaciones remotas</span><strong id="searchAsignacionesRemotas">0</strong></div>
-        <div class="card"><span>IPs unicas</span><strong id="searchIpsUnicas">0</strong></div>
-        <div class="card"><span>DNI unicos</span><strong id="searchDniUnicos">0</strong></div>
-        <div class="card"><span>Filtro TS/VMS</span><strong id="searchModoActual">-</strong></div>
-        <div class="card"><span>Filtro estado</span><strong id="searchEstadoActual">-</strong></div>
-      </div>
-    </section>
-
-    <section class="panel hidden" id="ticketAuditSection" style="margin-top: 22px;">
-      <div class="section-head">
-        <div>
-          <h3>Auditoria por ticket</h3>
-          <p id="ticketAuditInfo">Revision detallada de conteo por ticket.</p>
-        </div>
-      </div>
-      <div class="cards" style="margin-top: 0;">
-        <div class="card"><span>Filas totales</span><strong id="auditFilasTotales">0</strong></div>
-        <div class="card"><span>Solicitudes ticket + DNI</span><strong id="auditSolicitudes">0</strong></div>
-        <div class="card"><span>Activos</span><strong id="auditActivos">0</strong></div>
-        <div class="card"><span>Cesados</span><strong id="auditCesados">0</strong></div>
-        <div class="card"><span>Modelo seguro SI activos</span><strong id="auditModeloSi">0</strong></div>
-      </div>
-      <div class="cards" style="margin-top: 10px;">
-        <div class="card"><span>Modelo seguro NO activos</span><strong id="auditModeloNo">0</strong></div>
-      </div>
-      <div class="table-wrap" style="margin-top: 18px;">
-        <table id="tablaTicketAudit"></table>
-      </div>
-    </section>
-
-    <section class="grid hidden" id="searchResultsSection">
-      <div class="panel">
-        <div class="section-head">
-          <div>
-            <h3>Resultados de la busqueda</h3>
-            <p id="resultsInfo">Escribe una busqueda para ver resultados.</p>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table id="tablaResultados"></table>
-        </div>
-      </div>
-
-      <div class="stack">
-        <div class="panel">
-          <div class="section-head">
-            <div>
-              <h3>Resumen por ticket</h3>
-              <p>Cuantos equipos virtuales se asignaron por ticket.</p>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="mini-table" id="tablaTickets"></table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="section-head">
-            <div>
-              <h3>Top areas</h3>
-              <p>Distribucion de solicitudes por area.</p>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="mini-table" id="tablaAreas"></table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="section-head">
-            <div>
-              <h3>Top centros de costo</h3>
-              <p>Las combinaciones mas frecuentes de la base.</p>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="mini-table" id="tablaCentros"></table>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel hidden" id="pivotSection" style="margin-top: 22px;">
-      <div class="section-head">
-        <div>
-          <h3>Tabla dinamica de asignaciones remotas</h3>
-          <p>Conteo de IPs por area y centro de costo, solo para usuarios con DNI e IP valida.</p>
-        </div>
-        <button class="secondary hidden" id="exportAssignmentsButton" onclick="descargarAsignacionesRemotas()">
-          Descargar Excel
-        </button>
-      </div>
-      <div class="table-wrap">
-        <table id="tablaPivot"></table>
-      </div>
-    </section>
-  </div>
-
-  <script>
-    const apiBase = window.location.origin;
-    let currentResults = [];
-    let currentUser = null;
-
-    function currentFilters() {
-      return {
-        q: document.getElementById("search").value.trim(),
-        tipo_entorno: document.getElementById("tipoEntornoFilter").value,
-        status: document.getElementById("statusFilter").value,
-      };
-    }
-
-    async function jsonFetch(url, options = {}) {
-      const headers = { ...(options.headers || {}) };
-      if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
-        headers["Content-Type"] = "application/json";
-      }
-
-      const response = await fetch(url, {
-        credentials: "same-origin",
-        ...options,
-        headers,
-      });
-      if (!response.ok) {
-        let message = `Error ${response.status}`;
-        try {
-          const payload = await response.json();
-          message = payload.detail || payload.mensaje || message;
-        } catch (_) {}
-        throw new Error(message);
-      }
-      return response.json();
-    }
-
-    function setText(id, value) {
-      document.getElementById(id).textContent = value ?? "0";
-    }
-
-    function badgeEstado(estado) {
-      const css = estado === "ACTIVO" ? "activo" : "cesado";
-      return `<span class="badge ${css}">${estado || "SIN DATO"}</span>`;
-    }
-
-    function roleLabel(role) {
-      if (role === "admin") return "Administrador";
-      if (role === "tecnologia") return "Tecnologia / Ingenieria";
-      if (role === "invitado") return "Invitado lectura";
-      return role || "Sin rol";
-    }
-
-    function applyRolePermissions() {
-      const uploadButton = document.getElementById("uploadButton");
-      const fileInput = document.getElementById("fileInput");
-      const note = document.getElementById("uploadPermissionNote");
-      const sessionInfo = document.getElementById("sessionInfo");
-      const logoutButton = document.getElementById("logoutButton");
-      const exportButton = document.getElementById("exportAssignmentsButton");
-
-      if (!currentUser) {
-        uploadButton.disabled = true;
-        fileInput.disabled = true;
-        note.textContent = "";
-        sessionInfo.textContent = "Sin sesion iniciada";
-        logoutButton.classList.add("hidden");
-        exportButton.classList.add("hidden");
-        document.querySelectorAll("[data-export-segment]").forEach((card) => {
-          card.classList.remove("exportable");
-          card.removeAttribute("title");
-        });
-        return;
-      }
-
-      const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
-      const canExport = currentUser.role === "admin";
-      uploadButton.disabled = !canUpload;
-      fileInput.disabled = !canUpload;
-      note.textContent = canUpload
-        ? "Tu rol permite cargar nuevas bases."
-        : "Modo lectura: este rol no puede subir ni modificar la base.";
-      sessionInfo.textContent = `${currentUser.display_name} | Rol: ${roleLabel(currentUser.role)}`;
-      logoutButton.classList.remove("hidden");
-      exportButton.classList.toggle("hidden", !canExport);
-      document.querySelectorAll("[data-export-segment]").forEach((card) => {
-        card.classList.toggle("exportable", canExport);
-        if (canExport) {
-          card.setAttribute("title", "Haz clic para descargar este grupo en Excel");
-        } else {
-          card.removeAttribute("title");
-        }
-      });
-    }
-
-    async function loadSession() {
-      try {
-        currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
-        document.getElementById("authOverlay").classList.add("hidden");
-        applyRolePermissions();
-        await cargarInicial();
-      } catch (_) {
-        currentUser = null;
-        applyRolePermissions();
-        document.getElementById("authOverlay").classList.remove("hidden");
-      }
-    }
-
-    async function login() {
-      const username = document.getElementById("loginUsername").value.trim();
-      const password = document.getElementById("loginPassword").value;
-      const errorBox = document.getElementById("authError");
-      errorBox.textContent = "";
-
-      try {
-        currentUser = await jsonFetch(`${apiBase}/login`, {
-          method: "POST",
-          body: JSON.stringify({ username, password }),
-        });
-        document.getElementById("authOverlay").classList.add("hidden");
-        document.getElementById("loginPassword").value = "";
-        applyRolePermissions();
-        await cargarInicial();
-      } catch (error) {
-        errorBox.textContent = error.message;
-      }
-    }
-
-    async function logout() {
-      await jsonFetch(`${apiBase}/logout`, { method: "POST", headers: {} });
-      currentUser = null;
-      applyRolePermissions();
-      document.getElementById("authOverlay").classList.remove("hidden");
-      document.getElementById("tablaResultados").innerHTML = "";
-      document.getElementById("tablaPivot").innerHTML = "";
-      renderAreas([]);
-      renderCentros([]);
-      renderTickets([]);
-      setSearchSectionVisible(false);
-    }
-
-    async function descargarAsignacionesRemotas() {
-      if (!currentUser || currentUser.role !== "admin") {
-        alert("Solo el administrador puede descargar este Excel.");
-        return;
-      }
-
-      const query = document.getElementById("search").value.trim();
-      const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
-      const status = document.getElementById("statusFilter").value;
-      const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
-      const response = await fetch(`${apiBase}/export-search-assignments?${params.toString()}`, {
-        credentials: "same-origin",
-      });
-
-      if (!response.ok) {
-        alert("No se pudo descargar el Excel filtrado.");
-        return;
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "asignaciones_remotas_filtradas.xlsx";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    }
-
-    async function descargarSegmento(segment) {
-      if (!currentUser || currentUser.role !== "admin") {
-        alert("Solo el administrador puede descargar este Excel.");
-        return;
-      }
-
-      const params = new URLSearchParams({ segment, ...currentFilters() });
-      const response = await fetch(`${apiBase}/export-card?${params.toString()}`, {
-        credentials: "same-origin",
-      });
-
-      if (!response.ok) {
-        alert("No se pudo descargar el Excel de esta tarjeta.");
-        return;
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${segment}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    }
-
-    function renderMainTable(data) {
-      const table = document.getElementById("tablaResultados");
-
-      if (!data.length) {
-        table.innerHTML = `<tr><td class="empty">No se encontraron registros con ese criterio.</td></tr>`;
-        return;
-      }
-
-      const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
-      ];
-
-      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
-      const rows = data.map(item => `
-        <tr>
-          <td>${badgeEstado(item.estado)}</td>
-          <td>${item.tipo_entorno || "-"}</td>
-          <td>${item.so || "-"}</td>
-          <td>${item.dni || "-"}</td>
-          <td>${item.nombre_completo || "-"}</td>
-          <td>${item.ip || "-"}</td>
-          <td>${item.hostname || "-"}</td>
-          <td>${item.ticket || "-"}</td>
-          <td>${item.area || "-"}</td>
-          <td>${item.centro_costo || "-"}</td>
-          <td>${item.fecha_conexion || "-"}</td>
-          <td>${item.fecha_asignacion || "-"}</td>
-          <td>${item.modelo_seguro || "-"}</td>
-        </tr>
-      `).join("");
-
-      table.innerHTML = head + rows;
-    }
-
-    function renderMiniTable(id, headers, rows, emptyLabel) {
-      const table = document.getElementById(id);
-      if (!rows.length) {
-        table.innerHTML = `<tr><td class="empty">${emptyLabel}</td></tr>`;
-        return;
-      }
-
-      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
-      const body = rows.join("");
-      table.innerHTML = head + body;
-    }
-
-    function renderAreas(items) {
-      renderMiniTable(
-        "tablaAreas",
-        ["Area", "Cantidad"],
-        items.map(item => `<tr><td>${item.area}</td><td>${item.cantidad}</td></tr>`),
-        "Sin datos de area"
-      );
-    }
-
-    function renderCentros(items) {
-      renderMiniTable(
-        "tablaCentros",
-        ["Centro", "Cantidad"],
-        items.map(item => `<tr><td>${item.centro_costo}</td><td>${item.cantidad}</td></tr>`),
-        "Sin datos de centro de costo"
-      );
-    }
-
-   function renderTickets(items) {
-  renderMiniTable(
-    "tablaTickets",
-    ["Ticket", "Solicitudes ticket + DNI", "Activos", "Cesados", "Mod. seguro SI", "Pers. nuevo NO", "Fecha conexion", "Fecha asignacion"],
-    items.map(item => `
-      <tr>
-        <td>${item.ticket || "-"}</td>
-        <td>${item.solicitudes ?? 0}</td>
-        <td>${item.activos ?? 0}</td>
-        <td>${item.cesados ?? 0}</td>
-        <td>${item.modelo_seguro_si ?? 0}</td>
-        <td>${item.personal_nuevo_no ?? 0}</td>
-        <td>${item.fecha_conexion || "-"}</td>
-        <td>${item.fecha_asignacion || "-"}</td>
-      </tr>
-    `),
-    "Sin tickets para mostrar"
-  );
+<script>
+const apiBase = window.location.origin;
+let currentResults = [];
+let currentUser = null;
+
+function setText(id, value) {
+  document.getElementById(id).textContent = value ?? "0";
 }
 
-    function renderPivotTable(items) {
-      const table = document.getElementById("tablaPivot");
-      if (!items.length) {
-        table.innerHTML = `<tr><td class="empty">No hay asignaciones remotas validas para esta busqueda.</td></tr>`;
-        return;
-      }
-
-      const headers = ["Area", "Centro de costo", "Cantidad IPs", "IPs unicas", "DNI unicos", "Tickets unicos", "Windows 10", "Windows 11"];
-      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
-      const rows = items.map(item => `
-        <tr>
-          <td>${item.area || "-"}</td>
-          <td>${item.centro_costo || "-"}</td>
-          <td>${item.cantidad_ips ?? 0}</td>
-          <td>${item.ips_unicas ?? 0}</td>
-          <td>${item.usuarios_dni ?? 0}</td>
-          <td>${item.tickets_unicos ?? 0}</td>
-          <td>${item.windows_10 ?? 0}</td>
-          <td>${item.windows_11 ?? 0}</td>
-        </tr>
-      `).join("");
-      table.innerHTML = head + rows;
-    }
-
-    function renderTicketAudit(data) {
-      const section = document.getElementById("ticketAuditSection");
-      if (!data || !data.ticket) {
-        section.classList.add("hidden");
-        document.getElementById("tablaTicketAudit").innerHTML = "";
-        return;
-      }
-
-      section.classList.remove("hidden");
-      document.getElementById("ticketAuditInfo").textContent = `Revision del ticket ${data.ticket}`;
-      setText("auditFilasTotales", data.resumen.filas_totales);
-      setText("auditSolicitudes", data.resumen.solicitudes_ticket_dni);
-      setText("auditActivos", data.resumen.activos);
-      setText("auditCesados", data.resumen.cesados);
-      setText("auditModeloSi", data.resumen.modelo_seguro_si_activo);
-      setText("auditModeloNo", data.resumen.modelo_seguro_no_activo);
-
-      const table = document.getElementById("tablaTicketAudit");
-      if (!data.filas.length) {
-        table.innerHTML = `<tr><td class="empty">No hay filas para auditar en este ticket.</td></tr>`;
-        return;
-      }
-
-      const headers = [
-        "DNI", "IP", "Hostname", "Arquitectura", "Area", "Centro de costo",
-        "Fecha conexion", "Fecha asignacion", "Modelo seguro", "Cuenta solicitud", "Cuenta activo", "Cuenta cesado", "Motivo"
-      ];
-      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
-      const rows = data.filas.map(item => `
-        <tr>
-          <td>${item.dni || "-"}</td>
-          <td>${item.ip || "-"}</td>
-          <td>${item.hostname || "-"}</td>
-          <td>${item.arquitectura || "-"}</td>
-          <td>${item.area || "-"}</td>
-          <td>${item.centro_costo || "-"}</td>
-          <td>${item.fecha_conexion || "-"}</td>
-          <td>${item.fecha_asignacion || "-"}</td>
-          <td>${item.modelo_seguro || "-"}</td>
-          <td>${item.cuenta_solicitud}</td>
-          <td>${item.cuenta_activo}</td>
-          <td>${item.cuenta_cesado}</td>
-          <td>${item.motivo_conteo}</td>
-        </tr>
-      `).join("");
-      table.innerHTML = head + rows;
-    }
-
-    function setSearchSectionVisible(visible) {
-      document.getElementById("searchInsights").classList.toggle("hidden", !visible);
-      document.getElementById("pivotSection").classList.toggle("hidden", !visible);
-      document.getElementById("searchResultsSection").classList.toggle("hidden", !visible);
-    }
-
-    async function refreshSearchDashboard(query, tipoEntorno, status) {
-  const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
-
-  const dashboard = await jsonFetch(
-    `${apiBase}/search-dashboard?${params.toString()}`
-  );
-
-  const pivot = await jsonFetch(
-    `${apiBase}/search-pivot?${params.toString()}&limit=200`
-  );
-
-   setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
-   setText("searchIpsUnicas", dashboard.ips_unicas);
-   setText("searchDniUnicos", dashboard.usuarios_con_dni);
-
-   renderAreas(dashboard.por_area || []);
-   renderCentros(dashboard.por_centro_costo || []);
-   renderPivotTable(pivot || []);
-
-  // 🔥 ESTA LÍNEA FALTABA
-   renderTickets(dashboard.por_ticket || []);
+async function jsonFetch(url, options = {}) {
+  const response = await fetch(url, { credentials: "same-origin", ...options });
+  if (!response.ok) throw new Error("Error");
+  return response.json();
 }
 
-    async function refreshDashboard() {
-      const status = document.getElementById("statusFilter").value;
-      const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
-      const dashboard = await jsonFetch(
-      `${apiBase}/dashboard?status=todos&tipo_entorno=${tipoEntorno}`
-       );
-      setText("totalRegistros", dashboard.total_registros);
-      setText("totalActivos", dashboard.total_activos);
-      setText("totalCesados", dashboard.total_cesados);
-      setText("ticketsUnicos", dashboard.tickets_unicos);
-      setText("asignadosServicio", dashboard.asignados_servicio);
-      setText("sedeCamana", dashboard.sede_camana);
-      setText("sedeChota", dashboard.sede_chota);
-      setText("sedeCentroCivico", dashboard.sede_centro_civico);
-      setText("activosExcluidos", dashboard.activos_excluidos);
-      document.getElementById("fileMeta").textContent = dashboard.archivo
-        ? `Base activa: ${dashboard.archivo}`
-        : "No hay una base cargada todavia.";
-      renderAreas(dashboard.por_area || []);
-      renderCentros(dashboard.por_centro_costo || []);
-      renderTickets(dashboard.por_ticket || []);
-    }
-
-    async function cargarInicial() {
-      await refreshDashboard();
-      currentResults = [];
-      setText("totalResultados", 0);
-      document.getElementById("resultsInfo").textContent = "Escribe una busqueda para ver resultados.";
-      document.getElementById("tablaResultados").innerHTML = "";
-      document.getElementById("tablaPivot").innerHTML = "";
-      renderTicketAudit(null);
-      renderAreas([]);
-      renderCentros([]);
-      renderTickets([]);
-      setSearchSectionVisible(false);
-    }
-
-    async function subirArchivo() {
-      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) {
-        alert("Tu rol no tiene permisos para subir archivos.");
-        return;
-      }
-
-      const input = document.getElementById("fileInput");
-      const file = input.files[0];
-
-      if (!file) {
-        alert("Selecciona un archivo Excel antes de subirlo.");
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const response = await jsonFetch(`${apiBase}/upload`, {
-          method: "POST",
-          headers: {},
-          body: formData,
-        });
-        await refreshDashboard();
-        await buscar();
-        alert(`${response.mensaje}. Registros procesados: ${response.registros}`);
-      } catch (error) {
-        console.error(error);
-        alert("No se pudo subir el archivo.");
-      }
-    }
-
+// =========================
+// 🔍 BUSCAR
+// =========================
 async function buscar() {
   const query = document.getElementById("search").value.trim();
   const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
@@ -1104,7 +30,6 @@ async function buscar() {
   currentResults = data;
 
   renderMainTable(data);
-
   setText("totalResultados", data.length);
 
   document.getElementById("resultsInfo").textContent =
@@ -1128,36 +53,107 @@ async function buscar() {
   setSearchSectionVisible(true);
 }
 
-    document.getElementById("search").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        buscar();
-      }
-    });
+// =========================
+// 🧹 LIMPIAR
+// =========================
+function limpiar() {
+  document.getElementById("search").value = "";
 
-    document.getElementById("loginPassword").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        login();
-      }
-    });
+  currentResults = [];
+  renderMainTable([]);
 
-    document.getElementById("statusFilter").addEventListener("change", () => {
-      buscar();
-    });
+  setText("totalResultados", 0);
+  document.getElementById("resultsInfo").textContent = "";
 
-    document.getElementById("tipoEntornoFilter").addEventListener("change", () => {
-      buscar();
-    });
+  renderTickets([]);
+  renderAreas([]);
+  renderCentros([]);
+  renderPivotTable([]);
 
-    document.querySelectorAll("[data-export-segment]").forEach((card) => {
-      card.addEventListener("click", () => {
-        if (!card.classList.contains("exportable")) {
-          return;
-        }
-        descargarSegmento(card.dataset.exportSegment);
-      });
-    });
+  setSearchSectionVisible(false);
+}
 
-    loadSession();
-  </script>
-</body>
-</html>
+// =========================
+// 📊 DASHBOARD
+// =========================
+async function refreshSearchDashboard(query, tipoEntorno, status) {
+  const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
+
+  const dashboard = await jsonFetch(
+    `${apiBase}/search-dashboard?${params.toString()}`
+  );
+
+  const pivot = await jsonFetch(
+    `${apiBase}/search-pivot?${params.toString()}`
+  );
+
+  renderAreas(dashboard.por_area || []);
+  renderCentros(dashboard.por_centro_costo || []);
+  renderTickets(dashboard.por_ticket || []);
+  renderPivotTable(pivot || []);
+}
+
+// =========================
+// 🧩 RENDERS
+// =========================
+function renderMainTable(data) {
+  const table = document.getElementById("tablaResultados");
+  if (!data.length) {
+    table.innerHTML = `<tr><td class="empty">Sin resultados</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr>
+      <th>DNI</th><th>IP</th><th>Hostname</th><th>Ticket</th>
+    </tr>
+    ${data.map(d => `
+      <tr>
+        <td>${d.dni || "-"}</td>
+        <td>${d.ip || "-"}</td>
+        <td>${d.hostname || "-"}</td>
+        <td>${d.ticket || "-"}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderTickets(items) {
+  const table = document.getElementById("tablaTickets");
+
+  if (!items.length) {
+    table.innerHTML = `<tr><td class="empty">Sin tickets</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <tr>
+      <th>Ticket</th><th>Solicitudes</th><th>Activos</th><th>Cesados</th>
+    </tr>
+    ${items.map(i => `
+      <tr>
+        <td>${i.ticket}</td>
+        <td>${i.solicitudes}</td>
+        <td>${i.activos}</td>
+        <td>${i.cesados}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderAreas() {}
+function renderCentros() {}
+function renderPivotTable() {}
+function renderTicketAudit() {}
+
+function setSearchSectionVisible(v) {
+  document.getElementById("searchResultsSection").classList.toggle("hidden", !v);
+}
+
+// =========================
+// 🚀 INIT
+// =========================
+document.getElementById("search").addEventListener("keydown", e => {
+  if (e.key === "Enter") buscar();
+});
+</script>
