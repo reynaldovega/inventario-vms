@@ -733,6 +733,68 @@
       });
     }
 
+async function cargarInicial() {
+  try {
+    const data = await jsonFetch(`${apiBase}/dashboard`);
+
+    setText("totalRegistros", data.total_registros);
+    setText("totalActivos", data.total_activos);
+    setText("totalCesados", data.total_cesados);
+    setText("ticketsUnicos", data.tickets_unicos);
+
+    setText("asignadosServicio", data.asignados_servicio);
+    setText("sedeCamana", data.sede_camana);
+    setText("sedeChota", data.sede_chota);
+    setText("sedeCentroCivico", data.sede_centro_civico);
+    setText("activosExcluidos", data.activos_excluidos);
+
+    renderAreas(data.por_area || []);
+    renderCentros(data.por_centro_costo || []);
+    renderTickets(data.por_ticket || []);
+
+    document.getElementById("fileMeta").textContent =
+      `Base activa: ${data.archivo}`;
+
+  } catch (e) {
+    console.error("Error cargando dashboard:", e);
+  }
+}
+async function subirArchivo() {
+  const input = document.getElementById("fileInput");
+  const file = input.files[0];
+
+  if (!file) {
+    alert("Selecciona un archivo primero");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetch(`${apiBase}/upload`, {
+      method: "POST",
+      body: formData,
+      credentials: "same-origin"
+    });
+
+    if (!response.ok) {
+      throw new Error("Error al subir archivo");
+    }
+
+    const data = await response.json();
+
+    alert("✅ Archivo cargado correctamente");
+
+    // 🔥 recargar dashboard
+    await cargarInicial();
+
+  } catch (error) {
+    console.error(error);
+    alert("❌ Error al subir archivo");
+  }
+}
+
     async function loadSession() {
       try {
         currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
@@ -789,37 +851,42 @@ async function buscar() {
 
   if (!query) return;
 
-  // 🔥 AHORA SÍ MOSTRAR
-  setSearchSectionVisible(true);
-  document.getElementById("pivotSection").classList.remove("hidden");
-  document.getElementById("ticketAuditSection").classList.remove("hidden");
-  document.getElementById("searchInsights").classList.remove("hidden");
+  try {
+    setSearchSectionVisible(true);
+    document.getElementById("pivotSection").classList.remove("hidden");
+    document.getElementById("ticketAuditSection").classList.remove("hidden");
+    document.getElementById("searchInsights").classList.remove("hidden");
 
-  const data = await jsonFetch(
-    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
-  );
+    const data = await jsonFetch(
+      `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
+    );
 
-  currentResults = data;
+    currentResults = data;
 
-  renderMainTable(data);
-  setText("totalResultados", data.length);
+    renderMainTable(data);
+    setText("totalResultados", data.length);
 
-  document.getElementById("resultsInfo").textContent =
-    `Se encontraron ${data.length} registros`;
+    document.getElementById("resultsInfo").textContent =
+      `Se encontraron ${data.length} registros`;
 
-  await refreshSearchDashboard(query, tipoEntorno, status);
+    await refreshSearchDashboard(query, tipoEntorno, status);
 
-  if (!query.includes(",")) {
-    try {
-      const audit = await jsonFetch(
-        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}`
-      );
-      renderTicketAudit(audit);
-    } catch {
+    if (!query.includes(",")) {
+      try {
+        const audit = await jsonFetch(
+          `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}`
+        );
+        renderTicketAudit(audit);
+      } catch {
+        renderTicketAudit(null);
+      }
+    } else {
       renderTicketAudit(null);
     }
-  } else {
-    renderTicketAudit(null);
+
+  } catch (error) {
+    console.error("❌ ERROR:", error);
+    alert("Error al buscar: " + error.message);
   }
 }
 
@@ -1028,6 +1095,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.key === "Enter") buscar();
     });
   }
+
+  loadSession(); // 🔥 ESTO FALTABA
 
   console.log("🔥 App cargada correctamente");
 });
