@@ -1090,47 +1090,43 @@
       }
     }
 
-    async function buscar() {
-      const query = document.getElementById("search").value.trim();
-      const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
-      const status = document.getElementById("statusFilter").value;
-      const hasSearchContext = Boolean(query || tipoEntorno !== "todos" || status !== "todos");
+async function buscar() {
+  const query = document.getElementById("search").value.trim();
+  const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
+  const status = document.getElementById("statusFilter").value;
 
-      if (!hasSearchContext) {
-        limpiar();
-        return;
-      }
+  if (!query) return;
 
-      const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status, limit: "300" });
-      const rows = await jsonFetch(`${apiBase}/vms?${params.toString()}`);
-      currentResults = rows;
-      renderMainTable(rows);
-      setText("totalResultados", rows.length);
-      setSearchSectionVisible(true);
-      document.getElementById("resultsInfo").textContent = query
-        ? `Busqueda activa: ${query}`
-        : "Mostrando los registros segun los filtros seleccionados.";
-      const auditTicket = query && !query.includes(",") ? query.trim() : "";
-      if (auditTicket) {
-        try {
-          const audit = await jsonFetch(`${apiBase}/ticket-audit?ticket=${encodeURIComponent(auditTicket)}&tipo_entorno=${encodeURIComponent(tipoEntorno)}`);
-          renderTicketAudit(audit);
-        } catch (_) {
-          renderTicketAudit(null);
-        }
-      } else {
-        renderTicketAudit(null);
-      }
-      await refreshSearchDashboard(query, tipoEntorno, status);
-      
+  const data = await jsonFetch(
+    `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
+  );
+
+  currentResults = data;
+
+  renderMainTable(data);
+
+  setText("totalResultados", data.length);
+
+  document.getElementById("resultsInfo").textContent =
+    `Se encontraron ${data.length} registros`;
+
+  await refreshSearchDashboard(query, tipoEntorno, status);
+
+  if (!query.includes(",")) {
+    try {
+      const audit = await jsonFetch(
+        `${apiBase}/ticket-audit?ticket=${encodeURIComponent(query)}&tipo_entorno=${tipoEntorno}`
+      );
+      renderTicketAudit(audit);
+    } catch {
+      renderTicketAudit(null);
     }
+  } else {
+    renderTicketAudit(null);
+  }
 
-    function limpiar() {
-      document.getElementById("search").value = "";
-      document.getElementById("tipoEntornoFilter").value = "todos";
-      document.getElementById("statusFilter").value = "todos";
-      cargarInicial();
-    }
+  setSearchSectionVisible(true);
+}
 
     document.getElementById("search").addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
