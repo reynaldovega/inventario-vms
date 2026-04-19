@@ -535,9 +535,9 @@
 
       <div class="cards">
         <div class="card" data-export-segment="asignados_servicio"><span>Remotas asignadas</span><strong id="asignadosServicio">0</strong></div>
-        <div class="card"><span>Campañas activas</span><strong id="sedeCamana">0</strong></div>
-        <div class="card"><span>Subservicios activos</span><strong id="sedeChota">0</strong></div>
-        <div class="card"><span>Solicitudes ticket + DNI</span><strong id="sedeCentroCivico">0</strong></div>
+        <div class="card" data-export-segment="sede_camana"><span>Sede Camana</span><strong id="sedeCamana">0</strong></div>
+        <div class="card" data-export-segment="sede_chota"><span>Sede Chota</span><strong id="sedeChota">0</strong></div>
+        <div class="card" data-export-segment="sede_centro_civico"><span>Sede Centro Civico</span><strong id="sedeCentroCivico">0</strong></div>
         <div class="card" data-export-segment="resultados"><span>Resultados busqueda</span><strong id="totalResultados">0</strong></div>
       </div>
 
@@ -545,16 +545,12 @@
         <div class="card" data-export-segment="total_registros"><span>Registros base</span><strong id="totalRegistros">0</strong></div>
         <div class="card" data-export-segment="total_activos"><span>Activos DNI + IP</span><strong id="totalActivos">0</strong></div>
         <div class="card" data-export-segment="total_cesados"><span>Cesados DNI sin IP</span><strong id="totalCesados">0</strong></div>
-        <div class="card"><span>Tickets unicos</span><strong id="ticketsUnicos">0</strong></div>
-        <div class="card" data-export-segment="activos_excluidos"><span>Excluidos operativos</span><strong id="activosExcluidos">0</strong></div>
+        <div class="card" data-export-segment="por_ticket"><span>Tickets unicos</span><strong id="ticketsUnicos">0</strong></div>
       </div>
     </section>
 
     <section class="search-insights" id="searchInsights">
       <div class="cards">
-        <div class="card" data-export-segment="search_asignaciones_remotas"><span>Asignaciones remotas</span><strong id="searchAsignacionesRemotas">0</strong></div>
-        <div class="card"><span>IPs unicas</span><strong id="searchIpsUnicas">0</strong></div>
-        <div class="card"><span>DNI unicos</span><strong id="searchDniUnicos">0</strong></div>
         <div class="card"><span>Filtro TS/VMS</span><strong id="searchModoActual">-</strong></div>
         <div class="card"><span>Filtro estado</span><strong id="searchEstadoActual">-</strong></div>
       </div>
@@ -602,6 +598,7 @@
               <h3>Resumen por ticket</h3>
               <p>Cuantos equipos virtuales se asignaron por ticket.</p>
             </div>
+            <button class="secondary hidden admin-export" data-export-button="por_ticket" type="button">Exportar</button>
           </div>
           <div class="table-wrap">
             <table class="mini-table" id="tablaTickets"></table>
@@ -614,6 +611,7 @@
               <h3>Campanas activas</h3>
               <p>Conteo de remotas asignadas por campana valida.</p>
             </div>
+            <button class="secondary hidden admin-export" data-export-button="por_area" type="button">Exportar</button>
           </div>
           <div class="table-wrap">
             <table class="mini-table" id="tablaAreas"></table>
@@ -626,6 +624,7 @@
               <h3>Subservicios activos</h3>
               <p>Conteo de remotas asignadas por subservicio valido.</p>
             </div>
+            <button class="secondary hidden admin-export" data-export-button="por_centro_costo" type="button">Exportar</button>
           </div>
           <div class="table-wrap">
             <table class="mini-table" id="tablaCentros"></table>
@@ -784,6 +783,9 @@
         } else {
           card.removeAttribute("title");
         }
+      });
+      document.querySelectorAll(".admin-export").forEach((button) => {
+        button.classList.toggle("hidden", !canExport);
       });
     }
 
@@ -1082,9 +1084,6 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
     `${apiBase}/search-pivot?${params.toString()}&limit=200`
   );
 
-   setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
-   setText("searchIpsUnicas", dashboard.ips_unicas);
-   setText("searchDniUnicos", dashboard.usuarios_con_dni);
    setText("searchModoActual", tipoEntornoLabel(tipoEntorno));
    setText("searchEstadoActual", statusLabel(status));
 
@@ -1109,13 +1108,9 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
       setText("sedeCamana", dashboard.sede_camana);
       setText("sedeChota", dashboard.sede_chota);
       setText("sedeCentroCivico", dashboard.sede_centro_civico);
-      setText("activosExcluidos", dashboard.activos_excluidos);
       document.getElementById("fileMeta").textContent = dashboard.archivo
         ? `Base activa: ${dashboard.archivo}`
         : "No hay una base cargada todavia.";
-      setText("searchAsignacionesRemotas", dashboard.asignados_servicio);
-      setText("searchIpsUnicas", dashboard.total_activos);
-      setText("searchDniUnicos", dashboard.total_cesados);
       setText("searchModoActual", tipoEntornoLabel(tipoEntorno));
       setText("searchEstadoActual", statusLabel(status));
       renderAreas(dashboard.por_area || []);
@@ -1250,6 +1245,12 @@ document.querySelectorAll("[data-export-segment]").forEach((card) => {
   card.addEventListener("click", () => {
     if (!card.classList.contains("exportable")) return;
     descargarSegmento(card.dataset.exportSegment);
+  });
+});
+
+document.querySelectorAll("[data-export-button]").forEach((button) => {
+  button.addEventListener("click", () => {
+    descargarSegmento(button.dataset.exportButton);
   });
 });
 

@@ -625,12 +625,12 @@ def filter_by_tipo_entorno(df: pd.DataFrame, tipo_entorno: str) -> pd.DataFrame:
         return df
 
     normalized_series = df["tipo_entorno"].map(normalize_text)
+    normalized_so = df["so"].map(normalize_text)
     if tipo_normalized == "ts":
         mask = normalized_series.str.contains("terminal server", na=False) | normalized_series.eq("ts")
         return df[mask]
 
     if tipo_normalized == "anexo":
-        normalized_so = df["so"].map(normalize_text)
         mask = normalized_series.eq("anexo") | normalized_so.eq("anexo") | df["ip"].map(normalize_text).str.contains("anexo", na=False)
         return df[mask]
 
@@ -638,6 +638,11 @@ def filter_by_tipo_entorno(df: pd.DataFrame, tipo_entorno: str) -> pd.DataFrame:
         normalized_series.str.contains("vm", na=False)
         | normalized_series.str.contains("vmm", na=False)
         | normalized_series.eq("vms")
+        | (
+            normalized_series.eq("")
+            & ~normalized_so.eq("anexo")
+            & ~normalized_series.str.contains("terminal server", na=False)
+        )
     )
     return df[mask]
 
@@ -685,9 +690,9 @@ def build_dashboard_snapshot(df: pd.DataFrame) -> dict:
         "total_cesados": int(cesado_mask.sum()),
         "tickets_unicos": int(ticket_df["ticket"].nunique()) if not ticket_df.empty else 0,
         "asignados_servicio": int(len(remote_df)),
-        "sede_camana": int(remote_df["area"].replace("", pd.NA).dropna().nunique()) if not remote_df.empty else 0,
-        "sede_chota": int(remote_df["centro_costo"].replace("", pd.NA).dropna().nunique()) if not remote_df.empty else 0,
-        "sede_centro_civico": int(len(ticket_df)),
+        "sede_camana": int((active_df["clasificacion_asignacion"] == "SEDE_CAMANA").sum()),
+        "sede_chota": int((active_df["clasificacion_asignacion"] == "SEDE_CHOTA").sum()),
+        "sede_centro_civico": int((active_df["clasificacion_asignacion"] == "SEDE_CENTRO_CIVICO").sum()),
         "activos_excluidos": int((active_df["clasificacion_asignacion"] == "EXCLUIDO").sum()),
         "por_area": summarize_group(remote_df, "area", limit=20),
         "por_centro_costo": summarize_group(remote_df, "centro_costo", limit=20),
@@ -785,6 +790,13 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
             "modelo_seguro": scoped["modelo_seguro"] if "modelo_seguro" in scoped else "",
         }
     )
+
+
+def build_summary_export(records: list[dict], ordered_columns: list[str]) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame(columns=ordered_columns)
+    df = pd.DataFrame(records)
+    return df.reindex(columns=ordered_columns, fill_value="")
 
 
 def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
@@ -917,6 +929,32 @@ def get_card_export_dataframe(segment: str, q: str, tipo_entorno: str, status: s
     if segment == "total_cesados":
         scoped = dashboard_df[has_valid_dni(dashboard_df["dni"]) & ~has_valid_ip(dashboard_df["ip"])]
         return build_standard_export(scoped)
+
+    if segment == "por_ticket":
+        base_records = ticket_summary(search_df if q else dashboard_df, limit=500)
+        return build_summary_export(
+            base_records,
+            [
+                "ticket",
+                "solicitudes",
+                "activos",
+                "cesados",
+                "modelo_seguro_si",
+                "personal_nuevo_no",
+                "fecha_conexion",
+                "fecha_asignacion",
+            ],
+        )
+
+    if segment == "por_area":
+        source_df = search_df if q else dashboard_df
+        records = summarize_group(remote_assignments_only(source_df), "area", limit=500)
+        return build_summary_export(records, ["area", "cantidad"])
+
+    if segment == "por_centro_costo":
+        source_df = search_df if q else dashboard_df
+        records = summarize_group(remote_assignments_only(source_df), "centro_costo", limit=500)
+        return build_summary_export(records, ["centro_costo", "cantidad"])
 
     if segment == "search_asignaciones_remotas":
         return build_remote_assignments_export(search_df)
