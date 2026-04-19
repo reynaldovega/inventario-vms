@@ -975,6 +975,9 @@ def meta():
     }
 
 
+from fastapi.responses import Response
+
 @app.get("/health")
+@app.head("/health")
 def health():
-    return {"status": "ok"}
+    return Response(status_code=200)
