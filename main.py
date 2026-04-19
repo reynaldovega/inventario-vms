@@ -6,6 +6,7 @@ import io
 import json
 import os
 import random
+import re
 import secrets
 import smtplib
 import time
@@ -62,6 +63,21 @@ USERS = {
 }
 
 otp_store = {}  # {username: (codigo, expira)}
+EXCLUDED_ASSIGNMENT_TAGS = [
+    "no existe",
+    "dotacion",
+    "falla remoto",
+    "capacitacion",
+    "tv",
+    "sede camana",
+    "sedechota",
+    "sede chota",
+    "sede centro civico",
+    "sede civico",
+    "centro civico",
+    "centrocivico",
+    "pivot",
+]
 
 
 def generar_otp():
@@ -231,6 +247,28 @@ def clean_value(value: object) -> str:
     return " ".join(text.split())
 
 
+def normalize_header_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", normalize_text(value))
+
+
+def get_series_by_header_alias(raw: pd.DataFrame, aliases: list[str]) -> pd.Series:
+    normalized_map = {normalize_header_key(col): col for col in raw.columns}
+    for alias in aliases:
+        column_name = normalized_map.get(normalize_header_key(alias))
+        if column_name:
+            return raw[column_name]
+    return pd.Series([""] * len(raw), index=raw.index, dtype="object")
+
+
+def has_valid_dni(series: pd.Series) -> pd.Series:
+    return series.fillna("").astype(str).str.strip() != ""
+
+
+def has_valid_ip(series: pd.Series) -> pd.Series:
+    cleaned = series.fillna("").astype(str).str.strip()
+    return (~cleaned.isin(["", "-", "nan", "None", "NULL"])) & cleaned.str.contains(r"[0-9]")
+
+
 def sign_data(payload: str) -> str:
     return hmac.new(SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -320,10 +358,10 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
 
     processed["nombre_completo"] = compact_name(
         [
-            raw.get("1?NOMBRE", pd.Series([""] * len(raw), index=raw.index)),
-            raw.get("2?NOMBRE", pd.Series([""] * len(raw), index=raw.index)),
-            raw.get("1?APELLIDO", pd.Series([""] * len(raw), index=raw.index)),
-            raw.get("2?APELLIDO", pd.Series([""] * len(raw), index=raw.index)),
+            get_series_by_header_alias(raw, ["1 NOMBRE", "1NOMBRE", "1°NOMBRE"]),
+            get_series_by_header_alias(raw, ["2 NOMBRE", "2NOMBRE", "2°NOMBRE"]),
+            get_series_by_header_alias(raw, ["1 APELLIDO", "1APELLIDO", "1°APELLIDO"]),
+            get_series_by_header_alias(raw, ["2 APELLIDO", "2APELLIDO", "2°APELLIDO"]),
         ]
     )
 
@@ -439,6 +477,23 @@ def smart_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     )
 
 
+def exact_match_search(df: pd.DataFrame, query: str) -> pd.DataFrame | None:
+    cleaned_query = clean_value(query)
+    normalized_query = normalize_text(cleaned_query)
+    if not normalized_query or "," in cleaned_query:
+        return None
+
+    area_matches = df["area"].map(normalize_text) == normalized_query
+    if area_matches.any():
+        return df[area_matches].copy()
+
+    centro_matches = df["centro_costo"].map(normalize_text) == normalized_query
+    if centro_matches.any():
+        return df[centro_matches].copy()
+
+    return None
+
+
 def summarize_group(df: pd.DataFrame, field: str, limit: int = 8) -> list[dict]:
     subset = df[df[field] != ""]
     if subset.empty:
@@ -463,55 +518,44 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
     if subset.empty:
         return []
 
-    # 🔥 limpiar IP
-    subset["ip_limpio"] = (
-    subset["ip"]
-    .fillna("")
-    .astype(str)
-    .str.strip()
-    .replace(["-", "nan", "None", "NULL"], "")
-)
+    dni_mask = has_valid_dni(subset["dni"])
+    ip_mask = has_valid_ip(subset["ip"])
 
-    # 🔹 solicitudes (FILAS)
     solicitudes = (
-        subset.groupby("ticket")
+        subset[dni_mask]
+        .groupby("ticket")
         .size()
         .reset_index(name="solicitudes")
     )
 
-    # 🔹 activos (filas con IP)
     activos = (
-        subset[subset["ip_limpio"] != ""]
+        subset[dni_mask & ip_mask]
         .groupby("ticket")
         .size()
         .reset_index(name="activos")
     )
 
-    # 🔹 cesados (filas sin IP)
     cesados = (
-        subset[subset["ip_limpio"] == ""]
+        subset[dni_mask & ~ip_mask]
         .groupby("ticket")
         .size()
         .reset_index(name="cesados")
     )
 
-    # 🔹 modelo seguro SI
     modelo_si = (
-        subset[subset["modelo_seguro"] == "SI"]
+        subset[dni_mask & ip_mask & (subset["modelo_seguro"] == "SI")]
         .groupby("ticket")
         .size()
         .reset_index(name="modelo_seguro_si")
     )
 
-    # 🔹 modelo seguro NO
     modelo_no = (
-        subset[subset["modelo_seguro"] == "NO"]
+        subset[dni_mask & ip_mask & (subset["modelo_seguro"] == "NO")]
         .groupby("ticket")
         .size()
         .reset_index(name="personal_nuevo_no")
     )
 
-    # 🔹 merge
     summary = solicitudes \
         .merge(activos, on="ticket", how="left") \
         .merge(cesados, on="ticket", how="left") \
@@ -520,7 +564,6 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
 
     summary = summary.fillna(0)
 
-    # 🔹 fechas
     subset["fecha_conexion_dt"] = parse_display_dates(subset["fecha_conexion"])
     subset["fecha_asignacion_dt"] = parse_display_dates(subset["fecha_asignacion"])
 
@@ -546,7 +589,7 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
 
 
 def classify_assignment(row: pd.Series) -> str:
-    if clean_value(row.get("ip", "")) == "":
+    if not bool(has_valid_ip(pd.Series([row.get("ip", "")])).iloc[0]):
         return "SIN_IP"
 
     area = normalize_text(row.get("area", ""))
@@ -565,13 +608,9 @@ def classify_assignment(row: pd.Series) -> str:
     ):
         return "SEDE_CENTRO_CIVICO"
 
-    excluded_tags = [
-        "falla remoto",
-        "tv",
-        "capacitacion",
+    excluded_tags = EXCLUDED_ASSIGNMENT_TAGS + [
         "pruebas",
         "highend",
-        "pivot",
         "ciberseguridad",
     ]
     if any(tag in combined for tag in excluded_tags):
@@ -582,12 +621,17 @@ def classify_assignment(row: pd.Series) -> str:
 
 def filter_by_tipo_entorno(df: pd.DataFrame, tipo_entorno: str) -> pd.DataFrame:
     tipo_normalized = normalize_text(tipo_entorno)
-    if tipo_normalized not in {"ts", "vms", "vm", "vmm"}:
+    if tipo_normalized not in {"ts", "vms", "vm", "vmm", "anexo"}:
         return df
 
     normalized_series = df["tipo_entorno"].map(normalize_text)
     if tipo_normalized == "ts":
         mask = normalized_series.str.contains("terminal server", na=False) | normalized_series.eq("ts")
+        return df[mask]
+
+    if tipo_normalized == "anexo":
+        normalized_so = df["so"].map(normalize_text)
+        mask = normalized_series.eq("anexo") | normalized_so.eq("anexo") | df["ip"].map(normalize_text).str.contains("anexo", na=False)
         return df[mask]
 
     mask = (
@@ -603,7 +647,7 @@ def remote_assignments_only(df: pd.DataFrame) -> pd.DataFrame:
         return df.copy()
 
     scoped = df.copy()
-    scoped = scoped[(scoped["ip"] != "") & (scoped["dni"] != "")]
+    scoped = scoped[has_valid_ip(scoped["ip"]) & has_valid_dni(scoped["dni"])]
     if scoped.empty:
         return scoped
 
@@ -619,6 +663,35 @@ def build_search_dashboard(df: pd.DataFrame) -> dict:
         "usuarios_con_dni": int(scoped["dni"].nunique()) if not scoped.empty else 0,
         "por_area": summarize_group(scoped, "area", limit=12),
         "por_centro_costo": summarize_group(scoped, "centro_costo", limit=12),
+    }
+
+
+def build_dashboard_snapshot(df: pd.DataFrame) -> dict:
+    remote_df = remote_assignments_only(df)
+    active_mask = has_valid_dni(df["dni"]) & has_valid_ip(df["ip"])
+    cesado_mask = has_valid_dni(df["dni"]) & ~has_valid_ip(df["ip"])
+
+    active_df = df[active_mask].copy()
+    if not active_df.empty:
+        active_df["clasificacion_asignacion"] = active_df.apply(classify_assignment, axis=1)
+    else:
+        active_df["clasificacion_asignacion"] = pd.Series(dtype="object")
+
+    ticket_df = df[has_valid_dni(df["dni"]) & (df["ticket"].fillna("").astype(str).str.strip() != "")].copy()
+
+    return {
+        "total_registros": int(len(df)),
+        "total_activos": int(active_mask.sum()),
+        "total_cesados": int(cesado_mask.sum()),
+        "tickets_unicos": int(ticket_df["ticket"].nunique()) if not ticket_df.empty else 0,
+        "asignados_servicio": int(len(remote_df)),
+        "sede_camana": int(remote_df["area"].replace("", pd.NA).dropna().nunique()) if not remote_df.empty else 0,
+        "sede_chota": int(remote_df["centro_costo"].replace("", pd.NA).dropna().nunique()) if not remote_df.empty else 0,
+        "sede_centro_civico": int(len(ticket_df)),
+        "activos_excluidos": int((active_df["clasificacion_asignacion"] == "EXCLUIDO").sum()),
+        "por_area": summarize_group(remote_df, "area", limit=20),
+        "por_centro_costo": summarize_group(remote_df, "centro_costo", limit=20),
+        "por_ticket": ticket_summary(df, limit=20),
     }
 
 
@@ -733,14 +806,18 @@ def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
             "filas": [],
         }
 
-    scoped["cuenta_solicitud"] = ((scoped["ticket"] != "") & (scoped["dni"] != "")).astype(int)
-    scoped["cuenta_activo"] = ((scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] != "")).astype(int)
-    scoped["cuenta_cesado"] = ((scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] == "")).astype(int)
+    dni_mask = has_valid_dni(scoped["dni"])
+    ip_mask = has_valid_ip(scoped["ip"])
+    ticket_mask = scoped["ticket"].fillna("").astype(str).str.strip() != ""
+
+    scoped["cuenta_solicitud"] = (ticket_mask & dni_mask).astype(int)
+    scoped["cuenta_activo"] = (ticket_mask & dni_mask & ip_mask).astype(int)
+    scoped["cuenta_cesado"] = (ticket_mask & dni_mask & ~ip_mask).astype(int)
     scoped["modelo_seguro_activo_si"] = (
-        (scoped["modelo_seguro"] == "SI") & (scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] != "")
+        (scoped["modelo_seguro"] == "SI") & ticket_mask & dni_mask & ip_mask
     ).astype(int)
     scoped["modelo_seguro_activo_no"] = (
-        (scoped["modelo_seguro"] == "NO") & (scoped["ticket"] != "") & (scoped["dni"] != "") & (scoped["ip"] != "")
+        (scoped["modelo_seguro"] == "NO") & ticket_mask & dni_mask & ip_mask
     ).astype(int)
     scoped["motivo_conteo"] = scoped.apply(
         lambda row: "ACTIVO"
@@ -757,7 +834,7 @@ def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
 
     resumen = {
         "filas_totales": int(len(scoped)),
-        "solicitudes_ticket_dni": int(((scoped["ticket"] != "") & (scoped["dni"] != "")).sum()),
+        "solicitudes_ticket_dni": int((ticket_mask & dni_mask).sum()),
         "activos": int(scoped["cuenta_activo"].sum()),
         "cesados": int(scoped["cuenta_cesado"].sum()),
         "modelo_seguro_si_activo": int(scoped["modelo_seguro_activo_si"].sum()),
@@ -778,7 +855,14 @@ def get_dashboard_scoped_df(tipo_entorno: str, status: str) -> pd.DataFrame:
 
 def get_search_scoped_df(q: str, tipo_entorno: str, status: str) -> pd.DataFrame:
     df = get_dashboard_scoped_df(tipo_entorno, status)
-    return smart_search(df, q) if q else df.copy()
+    if not q:
+        return df.copy()
+
+    exact_match = exact_match_search(df, q)
+    if exact_match is not None:
+        return exact_match
+
+    return smart_search(df, q)
 
 
 def get_card_export_dataframe(segment: str, q: str, tipo_entorno: str, status: str) -> pd.DataFrame:
@@ -827,10 +911,12 @@ def get_card_export_dataframe(segment: str, q: str, tipo_entorno: str, status: s
         return build_standard_export(dashboard_df)
 
     if segment == "total_activos":
-        return build_standard_export(dashboard_df[dashboard_df["estado"] == "ACTIVO"])
+        scoped = dashboard_df[has_valid_dni(dashboard_df["dni"]) & has_valid_ip(dashboard_df["ip"])]
+        return build_standard_export(scoped)
 
     if segment == "total_cesados":
-        return build_standard_export(dashboard_df[dashboard_df["estado"] == "CESADO"])
+        scoped = dashboard_df[has_valid_dni(dashboard_df["dni"]) & ~has_valid_ip(dashboard_df["ip"])]
+        return build_standard_export(scoped)
 
     if segment == "search_asignaciones_remotas":
         return build_remote_assignments_export(search_df)
@@ -960,9 +1046,7 @@ def get_vms(
     limit: int = Query(default=200, ge=1, le=5000),
 ):
     get_current_user(request)
-    df = filter_by_status(ensure_data_loaded(), status)
-    df = filter_by_tipo_entorno(df, tipo_entorno)
-    result = smart_search(df, q) if q else df.copy()
+    result = get_search_scoped_df(q, tipo_entorno, status)
     result = result.drop(columns=["search_blob"], errors="ignore").head(limit)
     return result.fillna("").to_dict(orient="records")
 
@@ -974,52 +1058,10 @@ def dashboard(
     tipo_entorno: str = Query(default="todos"),
 ):
     get_current_user(request)
-
-    base_df = ensure_data_loaded()  # ✅ alineado
-
-    # 🔹 cards (filtrados)
-    df = filter_by_status(base_df, status)
-    df = filter_by_tipo_entorno(df, tipo_entorno)
-
-    # 🔥 ticket summary SIN filtro de estado
-    ticket_df = filter_by_tipo_entorno(base_df, tipo_entorno)
-
-    total = len(df)
-    activos = int((df["estado"] == "ACTIVO").sum()) if not df.empty else 0
-    cesados = int((df["estado"] == "CESADO").sum()) if not df.empty else 0
-
-  
-    tickets_con_ip = int(df.loc[df["ip"] != "", "ticket"].replace("", pd.NA).dropna().nunique())
-    activos_con_ip = df[df["ip"] != ""].copy()
-    if not activos_con_ip.empty:
-        activos_con_ip["clasificacion_asignacion"] = activos_con_ip.apply(classify_assignment, axis=1)
-    else:
-        activos_con_ip["clasificacion_asignacion"] = pd.Series(dtype="object")
-
-    asignados_servicio = int((activos_con_ip["clasificacion_asignacion"] == "ASIGNADO_SERVICIO").sum())
-    sede_camana = int((activos_con_ip["clasificacion_asignacion"] == "SEDE_CAMANA").sum())
-    sede_chota = int((activos_con_ip["clasificacion_asignacion"] == "SEDE_CHOTA").sum())
-    sede_centro_civico = int(
-        (activos_con_ip["clasificacion_asignacion"] == "SEDE_CENTRO_CIVICO").sum()
-    )
-    excluidos = int((activos_con_ip["clasificacion_asignacion"] == "EXCLUIDO").sum())
-
-    return {
-    "archivo": current_file_name,
-    "total_registros": total,
-    "total_activos": activos,
-    "total_cesados": cesados,
-    "asignados_servicio": asignados_servicio,
-    "sede_camana": sede_camana,
-    "sede_chota": sede_chota,
-    "sede_centro_civico": sede_centro_civico,
-    "activos_excluidos": excluidos,
-    "tickets_unicos": int(df.loc[df["ticket"] != "", "ticket"].nunique()) if not df.empty else 0,
-    "tickets_con_ip": tickets_con_ip,
-    "por_area": summarize_group(df, "area"),
-    "por_centro_costo": summarize_group(df, "centro_costo"),
-    "por_ticket": ticket_summary(ticket_df),
-}
+    df = get_dashboard_scoped_df(tipo_entorno, status)
+    snapshot = build_dashboard_snapshot(df)
+    snapshot["archivo"] = current_file_name
+    return snapshot
 
 
 @app.get("/search-dashboard")
@@ -1030,17 +1072,9 @@ def search_dashboard(
     status: str = Query(default="todos"),
 ):
     get_current_user(request)
-
-    df = filter_by_status(ensure_data_loaded(), status)
-    df = filter_by_tipo_entorno(df, tipo_entorno)
-
-    result = smart_search(df, q) if q else df.copy()
-
+    result = get_search_scoped_df(q, tipo_entorno, status)
     data = build_search_dashboard(result)
-
-    # 🔥 AQUÍ VA
     data["por_ticket"] = ticket_summary(result)
-
     return data
 
 
@@ -1053,9 +1087,7 @@ def search_pivot(
     limit: int = Query(default=200, ge=1, le=1000),
 ):
     get_current_user(request)
-    df = filter_by_status(ensure_data_loaded(), status)
-    df = filter_by_tipo_entorno(df, tipo_entorno)
-    result = smart_search(df, q) if q else df.copy()
+    result = get_search_scoped_df(q, tipo_entorno, status)
     return build_assignment_pivot(result, limit=limit)
 
 
@@ -1067,9 +1099,7 @@ def export_search_assignments(
     status: str = Query(default="todos"),
 ):
     require_roles(request, {"admin"})
-    df = filter_by_status(ensure_data_loaded(), status)
-    df = filter_by_tipo_entorno(df, tipo_entorno)
-    result = smart_search(df, q) if q else df.copy()
+    result = get_search_scoped_df(q, tipo_entorno, status)
     export_df = build_remote_assignments_export(result)
 
     output = io.BytesIO()

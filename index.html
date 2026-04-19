@@ -515,7 +515,8 @@
           <div class="search-row">
             <input type="text" id="search" placeholder="Ejemplo: 44152710, SCCVCEM01TTO513, 10.132.15.56, 30706245, HABITAT, WINDOWS 10">
             <select id="tipoEntornoFilter">
-              <option value="todos">TS y VMS</option>
+              <option value="todos">Todos</option>
+              <option value="anexo">Solo Anexo</option>
               <option value="ts">Solo TS</option>
               <option value="vms">Solo VMS</option>
             </select>
@@ -533,23 +534,23 @@
       </div>
 
       <div class="cards">
-        <div class="card" data-export-segment="asignados_servicio"><span>Asignados servicio</span><strong id="asignadosServicio">0</strong></div>
-        <div class="card" data-export-segment="sede_camana"><span>Sede Camana</span><strong id="sedeCamana">0</strong></div>
-        <div class="card" data-export-segment="sede_chota"><span>Sede Chota</span><strong id="sedeChota">0</strong></div>
-        <div class="card" data-export-segment="sede_centro_civico"><span>Centro Civico</span><strong id="sedeCentroCivico">0</strong></div>
-        <div class="card" data-export-segment="resultados"><span>Resultados</span><strong id="totalResultados">0</strong></div>
+        <div class="card" data-export-segment="asignados_servicio"><span>Remotas asignadas</span><strong id="asignadosServicio">0</strong></div>
+        <div class="card"><span>Campañas activas</span><strong id="sedeCamana">0</strong></div>
+        <div class="card"><span>Subservicios activos</span><strong id="sedeChota">0</strong></div>
+        <div class="card"><span>Solicitudes ticket + DNI</span><strong id="sedeCentroCivico">0</strong></div>
+        <div class="card" data-export-segment="resultados"><span>Resultados busqueda</span><strong id="totalResultados">0</strong></div>
       </div>
 
       <div class="cards">
         <div class="card" data-export-segment="total_registros"><span>Registros base</span><strong id="totalRegistros">0</strong></div>
-        <div class="card" data-export-segment="total_activos"><span>Activos con IP</span><strong id="totalActivos">0</strong></div>
-        <div class="card" data-export-segment="total_cesados"><span>Cesados</span><strong id="totalCesados">0</strong></div>
+        <div class="card" data-export-segment="total_activos"><span>Activos DNI + IP</span><strong id="totalActivos">0</strong></div>
+        <div class="card" data-export-segment="total_cesados"><span>Cesados DNI sin IP</span><strong id="totalCesados">0</strong></div>
         <div class="card"><span>Tickets unicos</span><strong id="ticketsUnicos">0</strong></div>
         <div class="card" data-export-segment="activos_excluidos"><span>Excluidos operativos</span><strong id="activosExcluidos">0</strong></div>
       </div>
     </section>
 
-    <section class="search-insights hidden" id="searchInsights">
+    <section class="search-insights" id="searchInsights">
       <div class="cards">
         <div class="card" data-export-segment="search_asignaciones_remotas"><span>Asignaciones remotas</span><strong id="searchAsignacionesRemotas">0</strong></div>
         <div class="card"><span>IPs unicas</span><strong id="searchIpsUnicas">0</strong></div>
@@ -581,12 +582,12 @@
       </div>
     </section>
 
-    <section class="grid hidden" id="searchResultsSection">
+    <section class="grid" id="searchResultsSection">
       <div class="panel">
         <div class="section-head">
           <div>
             <h3>Resultados de la busqueda</h3>
-            <p id="resultsInfo">Escribe una busqueda para ver resultados.</p>
+            <p id="resultsInfo">Sin busqueda activa. Usa los filtros para revisar el dashboard general o escribe una campana, subservicio, DNI, IP, hostname o ticket.</p>
           </div>
         </div>
         <div class="table-wrap">
@@ -610,8 +611,8 @@
         <div class="panel">
           <div class="section-head">
             <div>
-              <h3>Top areas</h3>
-              <p>Distribucion de solicitudes por area.</p>
+              <h3>Campanas activas</h3>
+              <p>Conteo de remotas asignadas por campana valida.</p>
             </div>
           </div>
           <div class="table-wrap">
@@ -622,8 +623,8 @@
         <div class="panel">
           <div class="section-head">
             <div>
-              <h3>Top centros de costo</h3>
-              <p>Las combinaciones mas frecuentes de la base.</p>
+              <h3>Subservicios activos</h3>
+              <p>Conteo de remotas asignadas por subservicio valido.</p>
             </div>
           </div>
           <div class="table-wrap">
@@ -633,7 +634,7 @@
       </div>
     </section>
 
-    <section class="panel hidden" id="pivotSection" style="margin-top: 22px;">
+    <section class="panel" id="pivotSection" style="margin-top: 22px;">
       <div class="section-head">
         <div>
           <h3>Tabla dinamica de asignaciones remotas</h3>
@@ -700,6 +701,19 @@
       if (role === "tecnologia") return "Tecnologia / Ingenieria";
       if (role === "invitado") return "Invitado lectura";
       return role || "Sin rol";
+    }
+
+    function tipoEntornoLabel(value) {
+      if (value === "anexo") return "Solo Anexo";
+      if (value === "ts") return "Solo TS";
+      if (value === "vms") return "Solo VMS";
+      return "Todos";
+    }
+
+    function statusLabel(value) {
+      if (value === "activo") return "Solo activos";
+      if (value === "cesado") return "Solo cesados";
+      return "Todos";
     }
 
     function resetAuthForm() {
@@ -899,7 +913,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const table = document.getElementById("tablaResultados");
 
       if (!data.length) {
-        table.innerHTML = `<tr><td class="empty">No se encontraron registros con ese criterio.</td></tr>`;
+        table.innerHTML = `<tr><td class="empty">No hay resultados para mostrar con los filtros actuales.</td></tr>`;
         return;
       }
 
@@ -944,18 +958,18 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderAreas(items) {
       renderMiniTable(
         "tablaAreas",
-        ["Area", "Cantidad"],
+        ["Campana", "Cantidad"],
         items.map(item => `<tr><td>${item.area}</td><td>${item.cantidad}</td></tr>`),
-        "Sin datos de area"
+        "Sin datos de campana"
       );
     }
 
     function renderCentros(items) {
       renderMiniTable(
         "tablaCentros",
-        ["Centro", "Cantidad"],
+        ["Subservicio", "Cantidad"],
         items.map(item => `<tr><td>${item.centro_costo}</td><td>${item.cantidad}</td></tr>`),
-        "Sin datos de centro de costo"
+        "Sin datos de subservicio"
       );
     }
 
@@ -1052,12 +1066,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function setSearchSectionVisible(visible) {
-      document.getElementById("searchInsights").classList.toggle("hidden", !visible);
-      document.getElementById("pivotSection").classList.toggle("hidden", !visible);
-      document.getElementById("searchResultsSection").classList.toggle("hidden", !visible);
+      document.getElementById("searchInsights").classList.remove("hidden");
+      document.getElementById("pivotSection").classList.remove("hidden");
+      document.getElementById("searchResultsSection").classList.remove("hidden");
     }
 
-    async function refreshSearchDashboard(query, tipoEntorno, status) {
+async function refreshSearchDashboard(query, tipoEntorno, status) {
   const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
 
   const dashboard = await jsonFetch(
@@ -1071,12 +1085,13 @@ document.addEventListener("DOMContentLoaded", () => {
    setText("searchAsignacionesRemotas", dashboard.total_asignaciones_remotas);
    setText("searchIpsUnicas", dashboard.ips_unicas);
    setText("searchDniUnicos", dashboard.usuarios_con_dni);
+   setText("searchModoActual", tipoEntornoLabel(tipoEntorno));
+   setText("searchEstadoActual", statusLabel(status));
 
    renderAreas(dashboard.por_area || []);
    renderCentros(dashboard.por_centro_costo || []);
    renderPivotTable(pivot || []);
 
-  // 🔥 ESTA LÍNEA FALTABA
    renderTickets(dashboard.por_ticket || []);
 }
 
@@ -1084,7 +1099,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const status = document.getElementById("statusFilter").value;
       const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
       const dashboard = await jsonFetch(
-      `${apiBase}/dashboard?status=todos&tipo_entorno=${tipoEntorno}`
+      `${apiBase}/dashboard?status=${status}&tipo_entorno=${tipoEntorno}`
        );
       setText("totalRegistros", dashboard.total_registros);
       setText("totalActivos", dashboard.total_activos);
@@ -1098,22 +1113,24 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("fileMeta").textContent = dashboard.archivo
         ? `Base activa: ${dashboard.archivo}`
         : "No hay una base cargada todavia.";
+      setText("searchAsignacionesRemotas", dashboard.asignados_servicio);
+      setText("searchIpsUnicas", dashboard.total_activos);
+      setText("searchDniUnicos", dashboard.total_cesados);
+      setText("searchModoActual", tipoEntornoLabel(tipoEntorno));
+      setText("searchEstadoActual", statusLabel(status));
       renderAreas(dashboard.por_area || []);
       renderCentros(dashboard.por_centro_costo || []);
       renderTickets(dashboard.por_ticket || []);
+      renderPivotTable([]);
     }
 
     async function cargarInicial() {
       await refreshDashboard();
       currentResults = [];
       setText("totalResultados", 0);
-      document.getElementById("resultsInfo").textContent = "Escribe una busqueda para ver resultados.";
-      document.getElementById("tablaResultados").innerHTML = "";
-      document.getElementById("tablaPivot").innerHTML = "";
+      document.getElementById("resultsInfo").textContent = "Sin busqueda activa. Usa los filtros para revisar el dashboard general o escribe una campana, subservicio, DNI, IP, hostname o ticket.";
+      renderMainTable([]);
       renderTicketAudit(null);
-      renderAreas([]);
-      renderCentros([]);
-      renderTickets([]);
       setSearchSectionVisible(false);
     }
 
@@ -1153,7 +1170,16 @@ async function buscar() {
   const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
   const status = document.getElementById("statusFilter").value;
 
-  if (!query) return;
+  if (!query) {
+    currentResults = [];
+    setText("totalResultados", 0);
+    document.getElementById("resultsInfo").textContent = "Sin busqueda activa. Usa los filtros para revisar el dashboard general o escribe una campana, subservicio, DNI, IP, hostname o ticket.";
+    renderMainTable([]);
+    renderTicketAudit(null);
+    await refreshDashboard();
+    setSearchSectionVisible(false);
+    return;
+  }
 
   const data = await jsonFetch(
     `${apiBase}/vms?q=${query}&tipo_entorno=${tipoEntorno}&status=${status}`
@@ -1163,10 +1189,10 @@ async function buscar() {
 
   renderMainTable(data);
   setText("totalResultados", data.length);
+  document.getElementById("resultsInfo").textContent = `Resultados encontrados: ${data.length}`;
 
   await refreshSearchDashboard(query, tipoEntorno, status);
 
-  // 🔥 AUDITORÍA AQUÍ (BIEN UBICADO)
   if (!query.includes(",")) {
     try {
       const audit = await jsonFetch(
@@ -1186,16 +1212,12 @@ function limpiar() {
   document.getElementById("search").value = "";
 
   currentResults = [];
-  renderMainTable([]);
-
   setText("totalResultados", 0);
-  document.getElementById("resultsInfo").textContent = "";
-
-  renderTickets([]);
-  renderAreas([]);
-  renderCentros([]);
+  document.getElementById("resultsInfo").textContent = "Sin busqueda activa. Usa los filtros para revisar el dashboard general o escribe una campana, subservicio, DNI, IP, hostname o ticket.";
+  renderMainTable([]);
   renderPivotTable([]);
-
+  renderTicketAudit(null);
+  refreshDashboard();
   setSearchSectionVisible(false);
 }
     document.getElementById("search").addEventListener("keydown", (event) => {
@@ -1216,12 +1238,12 @@ function limpiar() {
       }
     });
 
-    document.getElementById("statusFilter").addEventListener("change", () => {
-      buscar();
+    document.getElementById("statusFilter").addEventListener("change", async () => {
+      await buscar();
     });
 
-    document.getElementById("tipoEntornoFilter").addEventListener("change", () => {
-      buscar();
+    document.getElementById("tipoEntornoFilter").addEventListener("change", async () => {
+      await buscar();
     });
 
 document.querySelectorAll("[data-export-segment]").forEach((card) => {
