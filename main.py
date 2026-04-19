@@ -5,8 +5,12 @@ import hmac
 import io
 import json
 import os
+import random
 import secrets
+import smtplib
+import time
 import unicodedata
+from email.mime.text import MIMEText
 
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
@@ -37,18 +41,75 @@ USERS = {
         "password": "Sayayin*rey25*",
         "role": "admin",
         "display_name": "Administrador",
+        "email": "",
     },
     "miriam.gamboa": {
         "password": "123456",
         "role": "tecnologia",
         "display_name": "Miriam Gamboa",
+        "email": "",
     },
     "invitado": {
         "password": "lectura2026",
         "role": "invitado",
         "display_name": "Invitado",
+        "email": "",
     },
 }
+
+otp_store = {}  # {username: (codigo, expira)}
+
+
+def generar_otp():
+    return str(random.randint(100000, 999999))
+
+
+def mask_email(email: str) -> str:
+    if "@" not in email:
+        return email
+
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        masked_local = f"{local[:1]}***"
+    else:
+        masked_local = f"{local[:2]}***"
+    return f"{masked_local}@{domain}"
+
+
+def is_secure_cookie_enabled() -> bool:
+    return os.getenv("COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes"} or bool(
+        os.getenv("RENDER")
+    )
+
+
+def enviar_correo(destino: str, codigo: str, display_name: str) -> None:
+    remitente = os.getenv("EMAIL_USER", "").strip()
+    clave = os.getenv("EMAIL_PASS", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
+    smtp_port = int(os.getenv("SMTP_PORT", "465"))
+
+    if not remitente or not clave:
+        raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
+
+    saludo = display_name or "usuario"
+    msg = MIMEText(
+        "\n".join(
+            [
+                f"Hola {saludo},",
+                "",
+                f"Tu codigo de acceso para Inventario VMS es: {codigo}",
+                "",
+                "Este codigo vence en 5 minutos.",
+            ]
+        )
+    )
+    msg["Subject"] = "Codigo de acceso - Inventario VMS"
+    msg["From"] = remitente
+    msg["To"] = destino
+
+    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+        server.login(remitente, clave)
+        server.send_message(msg)
 
 
 def load_users_from_env() -> dict:
@@ -72,6 +133,7 @@ def load_users_from_env() -> dict:
         password = str(item.get("password", ""))
         role = str(item.get("role", "")).strip().lower()
         display_name = str(item.get("display_name", "")).strip() or username
+        email = str(item.get("email", "")).strip().lower()
 
         if role == "ti":
             role = "tecnologia"
@@ -83,6 +145,7 @@ def load_users_from_env() -> dict:
             "password": password,
             "role": role,
             "display_name": display_name,
+            "email": email,
         }
 
     return loaded_users or USERS
@@ -728,32 +791,46 @@ def serve_index():
 
 
 @app.post("/login")
-async def login(request: Request, response: Response):
+async def login(request: Request):
     body = await request.json()
-    username = clean_value(body.get("username", "")).lower()
+    username = str(body.get("username", "")).strip().lower()
     password = str(body.get("password", ""))
 
     user = USERS.get(username)
     if not user or user["password"] != password:
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
 
-    token = create_session_token(username)
-    response.set_cookie(
-        key=SESSION_COOKIE,
-        value=token,
-        httponly=True,
-        samesite="lax",
-    )
+    email = clean_value(user.get("email", "")).lower()
+    if not email or "@" not in email:
+        raise HTTPException(
+            status_code=400,
+            detail="Este usuario no tiene un correo configurado para verificacion",
+        )
+
+    codigo = generar_otp()
+    expira = time.time() + 300
+    otp_store[username] = (codigo, expira)
+
+    try:
+        enviar_correo(email, codigo, user.get("display_name", username))
+    except Exception:
+        otp_store.pop(username, None)
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo enviar el codigo al correo configurado",
+        )
+
     return {
+        "step": "otp",
         "username": username,
-        "role": user["role"],
-        "display_name": user["display_name"],
+        "email_hint": mask_email(email),
+        "expires_in": 300,
     }
 
 
 @app.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(SESSION_COOKIE, path="/")
     return {"ok": True}
 
 
@@ -766,6 +843,42 @@ def me(request: Request):
         "display_name": user["display_name"],
     }
 
+@app.post("/verify-otp")
+async def verify_otp(request: Request, response: Response):
+    body = await request.json()
+    username = str(body.get("username", "")).strip().lower()
+    codigo = str(body.get("codigo", "")).strip()
+
+    if username not in otp_store:
+        raise HTTPException(status_code=400, detail="No hay codigo")
+
+    codigo_guardado, expira = otp_store[username]
+
+    if time.time() > expira:
+        otp_store.pop(username, None)
+        raise HTTPException(status_code=400, detail="Codigo expirado")
+
+    if codigo != codigo_guardado:
+        raise HTTPException(status_code=400, detail="Codigo incorrecto")
+
+    otp_store.pop(username, None)
+    token = create_session_token(username)
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=is_secure_cookie_enabled(),
+        path="/",
+    )
+
+    user = USERS[username]
+
+    return {
+        "username": username,
+        "role": user["role"],
+        "display_name": user["display_name"],
+    }
 
 @app.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...)):

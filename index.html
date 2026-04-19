@@ -94,6 +94,13 @@
       min-height: 20px;
     }
 
+    .auth-status {
+      margin-top: 12px;
+      color: var(--brand-dark);
+      font-size: 0.92rem;
+      min-height: 20px;
+    }
+
     .topbar {
       margin-bottom: 16px;
       display: flex;
@@ -465,13 +472,15 @@
 <body>
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
-      <h2>Acceso seguro</h2>
-      <p>Ingresa con tu usuario y contrasena para usar el inventario. El sistema distingue accesos de admin, tecnologia y modo lectura.</p>
+      <h2 id="authTitle">Acceso seguro</h2>
+      <p id="authDescription">Ingresa con tu usuario y contrasena para usar el inventario. Despues te enviaremos un codigo al correo configurado para completar el acceso.</p>
       <div class="auth-form">
         <input type="text" id="loginUsername" placeholder="Usuario">
+        <input type="text" id="loginOtp" class="hidden" placeholder="Codigo de verificacion" inputmode="numeric" maxlength="6">
         <input type="password" id="loginPassword" placeholder="Contrasena">
-        <button onclick="login()">Ingresar</button>
+        <button id="authButton" onclick="login()">Enviar codigo</button>
       </div>
+      <div class="auth-status" id="authStatus"></div>
       <div class="auth-error" id="authError"></div>
     </div>
   </div>
@@ -644,6 +653,8 @@
     const apiBase = window.location.origin;
     let currentResults = [];
     let currentUser = null;
+    let authStep = "credentials";
+    let pendingUsername = "";
 
     function currentFilters() {
       return {
@@ -689,6 +700,35 @@
       if (role === "tecnologia") return "Tecnologia / Ingenieria";
       if (role === "invitado") return "Invitado lectura";
       return role || "Sin rol";
+    }
+
+    function resetAuthForm() {
+      authStep = "credentials";
+      pendingUsername = "";
+      document.getElementById("loginOtp").value = "";
+      document.getElementById("loginPassword").value = "";
+      document.getElementById("authError").textContent = "";
+      document.getElementById("authStatus").textContent = "";
+      document.getElementById("authTitle").textContent = "Acceso seguro";
+      document.getElementById("authDescription").textContent =
+        "Ingresa con tu usuario y contrasena para usar el inventario. Despues te enviaremos un codigo al correo configurado para completar el acceso.";
+      document.getElementById("loginPassword").classList.remove("hidden");
+      document.getElementById("loginOtp").classList.add("hidden");
+      document.getElementById("authButton").textContent = "Enviar codigo";
+    }
+
+    function setOtpStep(username, emailHint) {
+      authStep = "otp";
+      pendingUsername = username;
+      document.getElementById("authError").textContent = "";
+      document.getElementById("authTitle").textContent = "Verifica tu correo";
+      document.getElementById("authDescription").textContent =
+        "Escribe el codigo de 6 digitos para terminar el ingreso.";
+      document.getElementById("authStatus").textContent = `Enviamos un codigo a ${emailHint}.`;
+      document.getElementById("loginPassword").classList.add("hidden");
+      document.getElementById("loginOtp").classList.remove("hidden");
+      document.getElementById("loginOtp").focus();
+      document.getElementById("authButton").textContent = "Validar codigo";
     }
 
     function applyRolePermissions() {
@@ -737,28 +777,43 @@
       try {
         currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
         document.getElementById("authOverlay").classList.add("hidden");
+        resetAuthForm();
         applyRolePermissions();
         await cargarInicial();
       } catch (_) {
         currentUser = null;
         applyRolePermissions();
+        resetAuthForm();
         document.getElementById("authOverlay").classList.remove("hidden");
       }
     }
 
     async function login() {
-      const username = document.getElementById("loginUsername").value.trim();
-      const password = document.getElementById("loginPassword").value;
       const errorBox = document.getElementById("authError");
       errorBox.textContent = "";
 
       try {
-        currentUser = await jsonFetch(`${apiBase}/login`, {
+        if (authStep === "credentials") {
+          const username = document.getElementById("loginUsername").value.trim();
+          const password = document.getElementById("loginPassword").value;
+          const payload = await jsonFetch(`${apiBase}/login`, {
+            method: "POST",
+            body: JSON.stringify({ username, password }),
+          });
+          setOtpStep(payload.username, payload.email_hint || "tu correo");
+          document.getElementById("loginPassword").value = "";
+          return;
+        }
+
+        currentUser = await jsonFetch(`${apiBase}/verify-otp`, {
           method: "POST",
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({
+            username: pendingUsername || document.getElementById("loginUsername").value.trim(),
+            codigo: document.getElementById("loginOtp").value.trim(),
+          }),
         });
         document.getElementById("authOverlay").classList.add("hidden");
-        document.getElementById("loginPassword").value = "";
+        resetAuthForm();
         applyRolePermissions();
         await cargarInicial();
       } catch (error) {
@@ -769,6 +824,7 @@
     async function logout() {
       await jsonFetch(`${apiBase}/logout`, { method: "POST", headers: {} });
       currentUser = null;
+      resetAuthForm();
       applyRolePermissions();
       document.getElementById("authOverlay").classList.remove("hidden");
       document.getElementById("tablaResultados").innerHTML = "";
@@ -1149,6 +1205,12 @@ function limpiar() {
     });
 
     document.getElementById("loginPassword").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        login();
+      }
+    });
+
+    document.getElementById("loginOtp").addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         login();
       }
