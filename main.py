@@ -43,18 +43,21 @@ USERS = {
         "role": "admin",
         "display_name": "Administrador",
         "email": "",
+        "email_greeting": "",
     },
     "miriam.gamboa": {
         "password": "123456",
         "role": "tecnologia",
         "display_name": "Miriam Gamboa",
         "email": "",
+        "email_greeting": "",
     },
     "invitado": {
         "password": "lectura2026",
         "role": "invitado",
         "display_name": "Invitado",
         "email": "",
+        "email_greeting": "",
     },
 }
 
@@ -83,7 +86,7 @@ def is_secure_cookie_enabled() -> bool:
     )
 
 
-def enviar_correo(destino: str, codigo: str, display_name: str) -> None:
+def enviar_correo(destino: str, codigo: str, display_name: str, email_greeting: str = "") -> None:
     remitente = os.getenv("EMAIL_USER", "").strip()
     clave = os.getenv("EMAIL_PASS", "").strip()
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
@@ -92,7 +95,7 @@ def enviar_correo(destino: str, codigo: str, display_name: str) -> None:
     if not remitente or not clave:
         raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
 
-    saludo = display_name or "usuario"
+    saludo = clean_value(email_greeting) or clean_value(display_name) or "usuario"
     mensaje_texto = "\n".join(
         [
             f"Estimado(a) {saludo},",
@@ -182,6 +185,7 @@ def load_users_from_env() -> dict:
         role = str(item.get("role", "")).strip().lower()
         display_name = str(item.get("display_name", "")).strip() or username
         email = str(item.get("email", "")).strip().lower()
+        email_greeting = str(item.get("email_greeting", "")).strip()
 
         if role == "ti":
             role = "tecnologia"
@@ -194,6 +198,7 @@ def load_users_from_env() -> dict:
             "role": role,
             "display_name": display_name,
             "email": email,
+            "email_greeting": email_greeting,
         }
 
     return loaded_users or USERS
@@ -860,7 +865,12 @@ async def login(request: Request):
     otp_store[username] = (codigo, expira)
 
     try:
-        enviar_correo(email, codigo, user.get("display_name", username))
+        enviar_correo(
+            email,
+            codigo,
+            user.get("display_name", username),
+            user.get("email_greeting", ""),
+        )
     except Exception:
         otp_store.pop(username, None)
         raise HTTPException(
