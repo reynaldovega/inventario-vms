@@ -10,6 +10,7 @@ import secrets
 import smtplib
 import time
 import unicodedata
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import pandas as pd
@@ -92,18 +93,65 @@ def enviar_correo(destino: str, codigo: str, display_name: str) -> None:
         raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
 
     saludo = display_name or "usuario"
-    msg = MIMEText(
-        "\n".join(
-            [
-                f"Hola {saludo},",
-                "",
-                f"Tu codigo de acceso para Inventario VMS es: {codigo}",
-                "",
-                "Este codigo vence en 5 minutos.",
-            ]
-        )
+    mensaje_texto = "\n".join(
+        [
+            f"Estimado(a) {saludo},",
+            "",
+            "Hemos recibido una solicitud de acceso a la plataforma Inventario VMS.",
+            "",
+            f"Su codigo de verificacion es: {codigo}",
+            "",
+            "Por seguridad, este codigo tiene una vigencia de 5 minutos y solo puede usarse una vez.",
+            "",
+            "Si usted no realizo esta solicitud, puede ignorar este mensaje.",
+            "",
+            "Atentamente,",
+            "Area Sistema Tecnologia",
+        ]
     )
-    msg["Subject"] = "Codigo de acceso - Inventario VMS"
+    mensaje_html = f"""
+    <html>
+      <body style="margin:0; padding:24px; background-color:#f4efe6; font-family:Segoe UI, Tahoma, Arial, sans-serif; color:#2b241d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px; margin:0 auto; border-collapse:collapse;">
+          <tr>
+            <td style="padding:0;">
+              <div style="background:linear-gradient(135deg, #1e6f5c 0%, #14493d 100%); border-radius:24px 24px 0 0; padding:28px 32px; color:#ffffff;">
+                <div style="font-size:13px; letter-spacing:1.6px; text-transform:uppercase; opacity:0.88;">Inventario VMS</div>
+                <h1 style="margin:10px 0 0; font-size:28px; line-height:1.2; font-weight:700;">Verificacion de acceso</h1>
+              </div>
+              <div style="background:#fffdf9; border:1px solid #e4d8c6; border-top:none; border-radius:0 0 24px 24px; padding:32px;">
+                <p style="margin:0 0 16px; font-size:16px; line-height:1.7;">Estimado(a) {saludo},</p>
+                <p style="margin:0 0 16px; font-size:15px; line-height:1.7; color:#5b5247;">
+                  Hemos recibido una solicitud de acceso a la plataforma <strong>Inventario VMS</strong>.
+                </p>
+                <p style="margin:0 0 12px; font-size:15px; line-height:1.7; color:#5b5247;">
+                  Utilice el siguiente codigo de verificacion para completar su ingreso:
+                </p>
+                <div style="margin:22px 0; padding:18px 20px; background:#f7f2ea; border:1px solid #e4d8c6; border-radius:18px; text-align:center;">
+                  <div style="font-size:12px; letter-spacing:1.4px; text-transform:uppercase; color:#8b7c6b; margin-bottom:10px;">Codigo de verificacion</div>
+                  <div style="font-size:34px; line-height:1; letter-spacing:8px; font-weight:700; color:#1e6f5c;">{codigo}</div>
+                </div>
+                <p style="margin:0 0 12px; font-size:14px; line-height:1.7; color:#5b5247;">
+                  Por seguridad, este codigo tiene una vigencia de <strong>5 minutos</strong> y solo puede usarse una vez.
+                </p>
+                <p style="margin:0 0 24px; font-size:14px; line-height:1.7; color:#5b5247;">
+                  Si usted no realizo esta solicitud, puede ignorar este mensaje.
+                </p>
+                <div style="padding-top:18px; border-top:1px solid #eee2d2; font-size:14px; line-height:1.7; color:#7a6f62;">
+                  Atentamente,<br>
+                  <strong style="color:#2b241d;">Area Sistema Tecnologia</strong>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    msg = MIMEMultipart("alternative")
+    msg.attach(MIMEText(mensaje_texto, "plain", "utf-8"))
+    msg.attach(MIMEText(mensaje_html, "html", "utf-8"))
+    msg["Subject"] = "Verificacion de acceso | Inventario VMS"
     msg["From"] = remitente
     msg["To"] = destino
 
