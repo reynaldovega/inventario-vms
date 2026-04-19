@@ -87,6 +87,19 @@
       margin-top: 18px;
     }
 
+    .auth-form input {
+      width: 100%;
+      min-height: 52px;
+      font-size: 1rem;
+    }
+
+    #loginPassword {
+      min-height: 58px;
+      font-size: 1.05rem;
+      padding-top: 14px;
+      padding-bottom: 14px;
+    }
+
     .auth-error {
       margin-top: 10px;
       color: var(--danger);
@@ -651,10 +664,13 @@
 
   <script>
     const apiBase = window.location.origin;
+    const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
     let currentResults = [];
     let currentUser = null;
     let authStep = "credentials";
     let pendingUsername = "";
+    let inactivityTimer = null;
+    let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
 
     function currentFilters() {
       return {
@@ -715,6 +731,46 @@
       return "Todos";
     }
 
+    function clearInactivityTimer() {
+      if (inactivityTimer) {
+        window.clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+      }
+    }
+
+    async function handleSessionTimeout() {
+      clearInactivityTimer();
+      if (!currentUser) return;
+
+      try {
+        await jsonFetch(`${apiBase}/logout`, { method: "POST", headers: {} });
+      } catch (_) {}
+
+      currentUser = null;
+      resetAuthForm();
+      applyRolePermissions();
+      document.getElementById("authOverlay").classList.remove("hidden");
+      document.getElementById("authError").textContent = "La sesion se cerro por inactividad.";
+    }
+
+    function resetInactivityTimer() {
+      clearInactivityTimer();
+      if (!currentUser) return;
+      inactivityTimer = window.setTimeout(() => {
+        handleSessionTimeout();
+      }, sessionIdleTimeoutMs);
+    }
+
+    function registerActivityListeners() {
+      ["click", "keydown", "mousemove", "scroll", "touchstart"].forEach((eventName) => {
+        document.addEventListener(eventName, () => {
+          if (currentUser) {
+            resetInactivityTimer();
+          }
+        }, { passive: true });
+      });
+    }
+
     function resetAuthForm() {
       authStep = "credentials";
       pendingUsername = "";
@@ -753,6 +809,7 @@
       const exportButton = document.getElementById("exportAssignmentsButton");
 
       if (!currentUser) {
+        clearInactivityTimer();
         uploadButton.disabled = true;
         fileInput.disabled = true;
         note.textContent = "";
@@ -768,6 +825,7 @@
 
       const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
       const canExport = currentUser.role === "admin";
+      resetInactivityTimer();
       uploadButton.disabled = !canUpload;
       fileInput.disabled = !canUpload;
       note.textContent = canUpload
@@ -792,12 +850,14 @@
     async function loadSession() {
       try {
         currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
+        sessionIdleTimeoutMs = (currentUser.session_timeout_seconds || 7200) * 1000;
         document.getElementById("authOverlay").classList.add("hidden");
         resetAuthForm();
         applyRolePermissions();
         await cargarInicial();
       } catch (_) {
         currentUser = null;
+        sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
         applyRolePermissions();
         resetAuthForm();
         document.getElementById("authOverlay").classList.remove("hidden");
@@ -828,6 +888,7 @@
             codigo: document.getElementById("loginOtp").value.trim(),
           }),
         });
+        sessionIdleTimeoutMs = (currentUser.session_timeout_seconds || 7200) * 1000;
         document.getElementById("authOverlay").classList.add("hidden");
         resetAuthForm();
         applyRolePermissions();
@@ -840,6 +901,8 @@
     async function logout() {
       await jsonFetch(`${apiBase}/logout`, { method: "POST", headers: {} });
       currentUser = null;
+      sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+      clearInactivityTimer();
       resetAuthForm();
       applyRolePermissions();
       document.getElementById("authOverlay").classList.remove("hidden");
@@ -1254,6 +1317,7 @@ document.querySelectorAll("[data-export-button]").forEach((button) => {
   });
 });
 
+registerActivityListeners();
 loadSession();
   </script>
 </body>

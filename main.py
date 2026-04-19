@@ -32,6 +32,7 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_EXCEL = next(BASE_DIR.glob("*.xlsx"), None)
 SESSION_COOKIE = "inventario_vms_session"
+SESSION_TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT_SECONDS", str(2 * 60 * 60)))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 
@@ -274,9 +275,12 @@ def sign_data(payload: str) -> str:
 
 
 def create_session_token(username: str) -> str:
+    now = int(time.time())
     payload = {
         "u": username,
         "n": secrets.token_hex(8),
+        "iat": now,
+        "exp": now + SESSION_TIMEOUT_SECONDS,
     }
     payload_json = json.dumps(payload, separators=(",", ":"))
     payload_b64 = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("utf-8")
@@ -299,6 +303,10 @@ def read_session_token(token: str | None) -> dict | None:
         return None
 
     username = payload.get("u", "")
+    expires_at = payload.get("exp")
+    if not isinstance(expires_at, int) or int(time.time()) > expires_at:
+        return None
+
     if username not in USERS:
         return None
     return {"username": username, **USERS[username]}
@@ -1023,6 +1031,7 @@ def me(request: Request):
         "username": user["username"],
         "role": user["role"],
         "display_name": user["display_name"],
+        "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
     }
 
 @app.post("/verify-otp")
@@ -1052,6 +1061,7 @@ async def verify_otp(request: Request, response: Response):
         samesite="lax",
         secure=is_secure_cookie_enabled(),
         path="/",
+        max_age=SESSION_TIMEOUT_SECONDS,
     )
 
     user = USERS[username]
