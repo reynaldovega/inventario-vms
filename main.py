@@ -33,6 +33,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_EXCEL = next(BASE_DIR.glob("*.xlsx"), None)
 SESSION_COOKIE = "inventario_vms_session"
 SESSION_TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT_SECONDS", str(2 * 60 * 60)))
+PASSWORD_MAX_AGE_SECONDS = int(os.getenv("PASSWORD_MAX_AGE_SECONDS", str(90 * 24 * 60 * 60)))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 
@@ -47,6 +48,7 @@ USERS_STORE_PATH = DATA_DIR / "users.json"
 INVITES_STORE_PATH = DATA_DIR / "invites.json"
 APPLICATIONS_STORE_PATH = DATA_DIR / "applications_tto.json"
 AGENT_REPORT_TOKEN = os.getenv("AGENT_REPORT_TOKEN", "").strip()
+ENTRY_ACCESS_TOKEN = os.getenv("ENTRY_ACCESS_TOKEN", "").strip()
 
 USERS = {
     "admin": {
@@ -369,6 +371,8 @@ def load_users_from_env() -> dict:
         display_name = str(item.get("display_name", "")).strip() or username
         email = str(item.get("email", "")).strip().lower()
         email_greeting = str(item.get("email_greeting", "")).strip()
+        password_changed_at = int(item.get("password_changed_at", 0) or 0)
+        force_password_change = bool(item.get("force_password_change", role in {"tecnologia", "invitado"}))
 
         if role == "ti":
             role = "tecnologia"
@@ -382,6 +386,8 @@ def load_users_from_env() -> dict:
             "display_name": display_name,
             "email": email,
             "email_greeting": email_greeting,
+            "password_changed_at": password_changed_at,
+            "force_password_change": force_password_change,
         }
 
     return loaded_users or USERS
@@ -412,13 +418,14 @@ def load_persisted_users() -> dict:
             "display_name": str(item.get("display_name", user)).strip() or user,
             "email": str(item.get("email", "")).strip().lower(),
             "email_greeting": str(item.get("email_greeting", "")).strip(),
+            "password_changed_at": int(item.get("password_changed_at", 0) or 0),
+            "force_password_change": bool(item.get("force_password_change", False)),
         }
     return loaded
 
 
 def persist_dynamic_users() -> None:
-    dynamic = {username: user for username, user in USERS.items() if username not in ENV_USERNAMES}
-    save_json_file(USERS_STORE_PATH, dynamic)
+    save_json_file(USERS_STORE_PATH, USERS)
 
 
 USERS.update(load_persisted_users())
@@ -523,8 +530,28 @@ def get_current_user(request: Request) -> dict:
 
 def require_roles(request: Request, allowed_roles: set[str]) -> dict:
     user = get_current_user(request)
+    if password_requires_change(user):
+        raise HTTPException(status_code=428, detail="Debe cambiar su contrasena para continuar")
     if user["role"] not in allowed_roles:
         raise HTTPException(status_code=403, detail="Sin permisos para esta accion")
+    return user
+
+
+def password_requires_change(user: dict) -> bool:
+    if user.get("role") == "admin":
+        return bool(user.get("force_password_change", False))
+    if bool(user.get("force_password_change", False)):
+        return True
+    changed_at = int(user.get("password_changed_at", 0) or 0)
+    if changed_at <= 0:
+        return True
+    return now_ts() - changed_at >= PASSWORD_MAX_AGE_SECONDS
+
+
+def require_password_current(request: Request) -> dict:
+    user = get_current_user(request)
+    if password_requires_change(user):
+        raise HTTPException(status_code=428, detail="Debe cambiar su contrasena para continuar")
     return user
 
 
@@ -1330,12 +1357,21 @@ def me(request: Request):
         "role": user["role"],
         "display_name": user["display_name"],
         "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
+        "password_must_change": password_requires_change(user),
+        "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
     }
 
 
 @app.get("/password-policy")
 def password_policy():
     return PASSWORD_POLICY
+
+
+@app.get("/entry-access")
+def entry_access(token: str = Query(default="")):
+    if not ENTRY_ACCESS_TOKEN or not hmac.compare_digest(ENTRY_ACCESS_TOKEN, token):
+        raise HTTPException(status_code=404, detail="No encontrado")
+    return {"ok": True}
 
 
 @app.post("/admin/invitations")
@@ -1403,6 +1439,8 @@ async def accept_invite(request: Request):
         "display_name": display_name,
         "email": email,
         "email_greeting": display_name,
+        "password_changed_at": now_ts(),
+        "force_password_change": False,
     }
     invitation["used"] = True
     invite_store[token] = invitation
@@ -1453,11 +1491,41 @@ async def confirm_password_reset(request: Request):
     if errors:
         raise HTTPException(status_code=400, detail=" ".join(errors))
     user["password"] = hash_password(password)
+    user["password_changed_at"] = now_ts()
+    user["force_password_change"] = False
     USERS[username] = user
     reset_item["used"] = True
     password_reset_store[token] = reset_item
     persist_dynamic_users()
     return {"ok": True, "message": "Contrasena actualizada."}
+
+
+@app.post("/change-password")
+async def change_password(request: Request):
+    user = get_current_user(request)
+    body = await request.json()
+    current_password = str(body.get("current_password", ""))
+    new_password = str(body.get("new_password", ""))
+
+    stored_user = USERS.get(user["username"])
+    if not stored_user or not verify_password(stored_user["password"], current_password):
+        raise HTTPException(status_code=400, detail="La contrasena actual no es correcta")
+
+    errors = validate_password_policy(
+        new_password,
+        user["username"],
+        stored_user.get("email", ""),
+        stored_user.get("display_name", ""),
+    )
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+
+    stored_user["password"] = hash_password(new_password)
+    stored_user["password_changed_at"] = now_ts()
+    stored_user["force_password_change"] = False
+    USERS[user["username"]] = stored_user
+    persist_dynamic_users()
+    return {"ok": True, "message": "Contrasena actualizada correctamente."}
 
 
 @app.post("/verify-otp")
@@ -1496,6 +1564,8 @@ async def verify_otp(request: Request, response: Response):
         "username": username,
         "role": user["role"],
         "display_name": user["display_name"],
+        "password_must_change": password_requires_change({"username": username, **user}),
+        "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
     }
 
 @app.post("/upload")
@@ -1593,7 +1663,7 @@ def get_vms(
     status: str = Query(default="todos"),
     limit: int = Query(default=200, ge=1, le=5000),
 ):
-    get_current_user(request)
+    require_password_current(request)
     result = get_search_scoped_df(q, tipo_entorno, status)
     result = result.drop(columns=["search_blob"], errors="ignore").head(limit)
     return result.fillna("").to_dict(orient="records")
@@ -1605,7 +1675,7 @@ def dashboard(
     status: str = Query(default="todos"),
     tipo_entorno: str = Query(default="todos"),
 ):
-    get_current_user(request)
+    require_password_current(request)
     df = get_dashboard_scoped_df(tipo_entorno, status)
     snapshot = build_dashboard_snapshot(df)
     snapshot["archivo"] = current_file_name
@@ -1619,7 +1689,7 @@ def search_dashboard(
     tipo_entorno: str = Query(default="todos"),
     status: str = Query(default="todos"),
 ):
-    get_current_user(request)
+    require_password_current(request)
     result = get_search_scoped_df(q, tipo_entorno, status)
     data = build_search_dashboard(result)
     data["por_ticket"] = ticket_summary(result)
@@ -1634,7 +1704,7 @@ def search_pivot(
     status: str = Query(default="todos"),
     limit: int = Query(default=200, ge=1, le=1000),
 ):
-    get_current_user(request)
+    require_password_current(request)
     result = get_search_scoped_df(q, tipo_entorno, status)
     return build_assignment_pivot(result, limit=limit)
 
@@ -1696,7 +1766,7 @@ def ticket_audit(
     ticket: str = Query(...),
     tipo_entorno: str = Query(default="todos"),
 ):
-    get_current_user(request)
+    require_password_current(request)
     return build_ticket_audit(ticket, tipo_entorno)
 
 

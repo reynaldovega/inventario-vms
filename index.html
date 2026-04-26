@@ -33,6 +33,11 @@
       min-height: 100vh;
     }
 
+    body.locked .shell,
+    body.locked .auth-overlay {
+      display: none;
+    }
+
     .shell {
       max-width: 1380px;
       margin: 0 auto;
@@ -524,7 +529,7 @@
     }
   </style>
 </head>
-<body>
+<body class="locked">
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
       <h2 id="authTitle">Acceso seguro</h2>
@@ -553,6 +558,7 @@
       <button class="tab-button restricted-tab hidden" id="tabAppsBtn" onclick="showTab('apps')" type="button">Aplicaciones TTO</button>
       <button class="tab-button restricted-tab hidden" id="tabDashboardBtn" onclick="showTab('dashboard')" type="button">Dashboard</button>
       <button class="tab-button admin-only hidden" id="tabAdminBtn" onclick="showTab('admin')" type="button">Invitaciones</button>
+      <button class="tab-button auth-only hidden" id="tabPasswordBtn" onclick="showTab('password')" type="button">Cambiar contrasena</button>
     </nav>
 
     <div class="tab-pane" id="tabInventario">
@@ -803,6 +809,24 @@
         </div>
       </section>
     </div>
+
+    <div class="tab-pane hidden" id="tabPassword">
+      <section class="hero">
+        <h1>Cambiar contrasena</h1>
+        <p class="subtitle">Actualiza tu contrasena de acceso. La nueva clave debe cumplir la politica de seguridad.</p>
+        <div class="panel">
+          <h2>Nueva contrasena</h2>
+          <div class="inline-form">
+            <input type="password" id="currentPassword" placeholder="Contrasena actual">
+            <input type="password" id="newPassword" placeholder="Nueva contrasena">
+            <input type="password" id="repeatPassword" placeholder="Repetir nueva contrasena">
+            <button onclick="cambiarPassword()">Actualizar</button>
+          </div>
+          <div class="helper">Politica: minimo 10 caracteres, una mayuscula, una minuscula, un numero y un simbolo.</div>
+          <div class="helper" id="passwordStatus"></div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script>
@@ -817,6 +841,20 @@
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
+    const entryToken = urlParams.get("entry") || "";
+    const ACCESS_STORAGE_KEY = "inventario_vms_invited_access";
+
+    function hasInvitedAccess() {
+      return localStorage.getItem(ACCESS_STORAGE_KEY) === "1";
+    }
+
+    function grantInvitedAccess() {
+      localStorage.setItem(ACCESS_STORAGE_KEY, "1");
+    }
+
+    function unlockPage() {
+      document.body.classList.remove("locked");
+    }
 
     function currentFilters() {
       return {
@@ -987,6 +1025,7 @@
           card.removeAttribute("title");
         });
         document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
+        document.querySelectorAll(".auth-only").forEach((item) => item.classList.add("hidden"));
         showTab("inventario");
         return;
       }
@@ -994,6 +1033,19 @@
       const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
       const canExport = currentUser.role === "admin";
       resetInactivityTimer();
+      if (currentUser.password_must_change) {
+        uploadButton.disabled = true;
+        fileInput.disabled = true;
+        note.textContent = "Debes cambiar tu contrasena antes de usar la plataforma.";
+        sessionInfo.textContent = `${currentUser.display_name} | Cambio de contrasena requerido`;
+        logoutButton.classList.remove("hidden");
+        exportButton.classList.add("hidden");
+        document.querySelectorAll("[data-export-segment]").forEach((card) => card.classList.remove("exportable"));
+        document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
+        document.querySelectorAll(".auth-only").forEach((item) => item.classList.remove("hidden"));
+        showTab("password");
+        return;
+      }
       uploadButton.disabled = !canUpload;
       fileInput.disabled = !canUpload;
       note.textContent = canUpload
@@ -1019,6 +1071,9 @@
       document.querySelectorAll(".admin-only").forEach((item) => {
         item.classList.toggle("hidden", currentUser.role !== "admin");
       });
+      document.querySelectorAll(".auth-only").forEach((item) => {
+        item.classList.remove("hidden");
+      });
     }
 
     function showTab(name) {
@@ -1027,12 +1082,14 @@
         apps: "tabApps",
         dashboard: "tabDashboard",
         admin: "tabAdmin",
+        password: "tabPassword",
       };
       const buttons = {
         inventario: "tabInventarioBtn",
         apps: "tabAppsBtn",
         dashboard: "tabDashboardBtn",
         admin: "tabAdminBtn",
+        password: "tabPasswordBtn",
       };
       Object.entries(panes).forEach(([key, id]) => {
         document.getElementById(id).classList.toggle("hidden", key !== name);
@@ -1045,10 +1102,26 @@
     }
 
     async function loadSession() {
+      if (entryToken) {
+        try {
+          await jsonFetch(`${apiBase}/entry-access?token=${encodeURIComponent(entryToken)}`, { headers: {} });
+          grantInvitedAccess();
+          window.history.replaceState({}, document.title, window.location.pathname);
+          unlockPage();
+          resetAuthForm();
+          document.getElementById("authOverlay").classList.remove("hidden");
+          return;
+        } catch (_) {
+          document.body.classList.add("locked");
+          return;
+        }
+      }
+
       if (inviteToken) {
         currentUser = null;
         applyRolePermissions();
         setPasswordTokenStep("invite");
+        unlockPage();
         document.getElementById("authOverlay").classList.remove("hidden");
         return;
       }
@@ -1056,20 +1129,30 @@
         currentUser = null;
         applyRolePermissions();
         setPasswordTokenStep("reset");
+        unlockPage();
         document.getElementById("authOverlay").classList.remove("hidden");
         return;
       }
       try {
         currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
         sessionIdleTimeoutMs = (currentUser.session_timeout_seconds || 7200) * 1000;
+        unlockPage();
         document.getElementById("authOverlay").classList.add("hidden");
         resetAuthForm();
         applyRolePermissions();
+        if (currentUser.password_must_change) {
+          return;
+        }
         await cargarInicial();
       } catch (_) {
         currentUser = null;
         sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
         applyRolePermissions();
+        if (!hasInvitedAccess()) {
+          document.body.classList.add("locked");
+          return;
+        }
+        unlockPage();
         resetAuthForm();
         document.getElementById("authOverlay").classList.remove("hidden");
       }
@@ -1092,6 +1175,7 @@
             method: "POST",
             body: JSON.stringify({ token, password }),
           });
+          grantInvitedAccess();
           window.history.replaceState({}, document.title, window.location.pathname);
           resetAuthForm();
           document.getElementById("authStatus").textContent = payload.message || "Operacion completada. Ya puedes iniciar sesion.";
@@ -1121,6 +1205,9 @@
         document.getElementById("authOverlay").classList.add("hidden");
         resetAuthForm();
         applyRolePermissions();
+        if (currentUser.password_must_change) {
+          return;
+        }
         await cargarInicial();
       } catch (error) {
         errorBox.textContent = error.message;
@@ -1452,6 +1539,39 @@ document.addEventListener("DOMContentLoaded", () => {
           }),
         });
         status.textContent = `Invitacion enviada a ${payload.email}.`;
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    async function cambiarPassword() {
+      const status = document.getElementById("passwordStatus");
+      status.textContent = "";
+      const currentPassword = document.getElementById("currentPassword").value;
+      const newPassword = document.getElementById("newPassword").value;
+      const repeatPassword = document.getElementById("repeatPassword").value;
+
+      if (newPassword !== repeatPassword) {
+        status.textContent = "Las contrasenas nuevas no coinciden.";
+        return;
+      }
+
+      try {
+        const payload = await jsonFetch(`${apiBase}/change-password`, {
+          method: "POST",
+          body: JSON.stringify({
+            current_password: currentPassword,
+            new_password: newPassword,
+          }),
+        });
+        document.getElementById("currentPassword").value = "";
+        document.getElementById("newPassword").value = "";
+        document.getElementById("repeatPassword").value = "";
+        status.textContent = payload.message || "Contrasena actualizada.";
+        currentUser.password_must_change = false;
+        applyRolePermissions();
+        await cargarInicial();
+        showTab("inventario");
       } catch (error) {
         status.textContent = error.message;
       }
