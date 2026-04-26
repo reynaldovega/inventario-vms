@@ -148,6 +148,54 @@ Roles permitidos:
 - `tecnologia`
 - `invitado`
 
+## 4.1 Permisos por usuario
+
+Puedes controlar que pestañas ve cada usuario agregando `permissions`.
+Si no agregas `permissions`, la app usa los permisos por defecto del rol.
+
+Permisos disponibles:
+
+- `inventario`: pestaña Inventario VMS.
+- `dashboard_vms`: pestaña Dashboard y carga/cruce de base VMS infraestructura.
+- `aplicaciones_tto`: pestaña Aplicaciones TTO.
+- `invitaciones`: pestaña Invitaciones.
+- `cargar_excel`: permite subir Excel en Inventario VMS.
+- `exportar`: permite exportar reportes.
+
+Ejemplo: invitado que solo puede ver Inventario:
+
+```json
+{
+  "username": "jrojas",
+  "password": "123456",
+  "role": "invitado",
+  "display_name": "Juan Rojas",
+  "email": "juan.acevedo11.03@gmail.com",
+  "email_greeting": "Hola Juan",
+  "permissions": ["inventario"]
+}
+```
+
+Ejemplo: tecnologia con Inventario y Dashboard, pero sin Aplicaciones TTO:
+
+```json
+{
+  "username": "miriam.gamboa",
+  "password": "654321",
+  "role": "tecnologia",
+  "display_name": "Miriam Gamboa",
+  "email": "mgamboa5797@gmail.com",
+  "email_greeting": "Holi amix Miriam",
+  "permissions": ["inventario", "dashboard_vms", "cargar_excel"]
+}
+```
+
+Ejemplo: usuario con solo Aplicaciones TTO:
+
+```json
+"permissions": ["aplicaciones_tto"]
+```
+
 ## 5. Que hace cada rol
 
 - `admin`: acceso total y puede subir archivo.

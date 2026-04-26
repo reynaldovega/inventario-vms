@@ -82,6 +82,12 @@ PASSWORD_POLICY = {
     "require_symbol": True,
 }
 
+ROLE_DEFAULT_PERMISSIONS = {
+    "admin": ["inventario", "dashboard_vms", "aplicaciones_tto", "invitaciones", "exportar", "cargar_excel"],
+    "tecnologia": ["inventario", "dashboard_vms", "aplicaciones_tto", "cargar_excel"],
+    "invitado": ["inventario"],
+}
+
 otp_store = {}  # {username: (codigo, expira)}
 invite_store = {}
 password_reset_store = {}
@@ -184,6 +190,44 @@ def validate_password_policy(password: str, username: str = "", email: str = "",
     if any(part and len(part) >= 4 and part in normalized_password for part in blocked_parts):
         errors.append("No debe contener datos evidentes del usuario.")
     return errors
+
+
+def normalize_permissions(raw_permissions, role: str) -> list[str]:
+    if isinstance(raw_permissions, str):
+        permissions = [item.strip() for item in raw_permissions.split(",")]
+    elif isinstance(raw_permissions, list):
+        permissions = [str(item).strip() for item in raw_permissions]
+    else:
+        permissions = ROLE_DEFAULT_PERMISSIONS.get(role, ["inventario"])
+
+    allowed = set().union(*[set(items) for items in ROLE_DEFAULT_PERMISSIONS.values()])
+    clean_permissions = []
+    for permission in permissions:
+        normalized = normalize_header_key(permission)
+        mapped = {
+            "dashboard": "dashboard_vms",
+            "dashboardvms": "dashboard_vms",
+            "aplicacionestto": "aplicaciones_tto",
+            "apps": "aplicaciones_tto",
+            "applications": "aplicaciones_tto",
+            "invitacion": "invitaciones",
+            "invitaciones": "invitaciones",
+            "inventario": "inventario",
+            "inventariovms": "inventario",
+            "exportar": "exportar",
+            "cargarexcel": "cargar_excel",
+        }.get(normalized, permission)
+        if mapped in allowed and mapped not in clean_permissions:
+            clean_permissions.append(mapped)
+    return clean_permissions or ROLE_DEFAULT_PERMISSIONS.get(role, ["inventario"])
+
+
+def user_permissions(user: dict) -> list[str]:
+    return normalize_permissions(user.get("permissions"), user.get("role", "invitado"))
+
+
+def has_permission(user: dict, permission: str) -> bool:
+    return permission in user_permissions(user)
 
 
 def make_action_token(kind: str, subject: str, ttl_seconds: int = 24 * 60 * 60) -> str:
@@ -322,6 +366,14 @@ def build_public_url(request: Request, token: str, mode: str) -> str:
     return f"{base_url}/?{mode}={token}"
 
 
+def find_user_by_email(email: str) -> tuple[str, dict] | tuple[str, None]:
+    normalized_email = email.strip().lower()
+    for username, user in USERS.items():
+        if str(user.get("email", "")).strip().lower() == normalized_email:
+            return username, user
+    return "", None
+
+
 def send_link_email(destino: str, asunto: str, titulo: str, descripcion: str, link: str) -> None:
     texto = "\n".join([titulo, "", descripcion, "", link, "", "Area Sistema Tecnologia"])
     html = f"""
@@ -373,6 +425,7 @@ def load_users_from_env() -> dict:
         email_greeting = str(item.get("email_greeting", "")).strip()
         password_changed_at = int(item.get("password_changed_at", 0) or 0)
         force_password_change = bool(item.get("force_password_change", role in {"tecnologia", "invitado"}))
+        permissions = normalize_permissions(item.get("permissions"), role)
 
         if role == "ti":
             role = "tecnologia"
@@ -388,6 +441,7 @@ def load_users_from_env() -> dict:
             "email_greeting": email_greeting,
             "password_changed_at": password_changed_at,
             "force_password_change": force_password_change,
+            "permissions": permissions,
         }
 
     return loaded_users or USERS
@@ -395,6 +449,7 @@ def load_users_from_env() -> dict:
 
 USERS = load_users_from_env()
 ENV_USERNAMES = set(USERS.keys())
+ENV_USERS = {username: user.copy() for username, user in USERS.items()}
 
 
 def load_persisted_users() -> dict:
@@ -420,12 +475,17 @@ def load_persisted_users() -> dict:
             "email_greeting": str(item.get("email_greeting", "")).strip(),
             "password_changed_at": int(item.get("password_changed_at", 0) or 0),
             "force_password_change": bool(item.get("force_password_change", False)),
+            "permissions": normalize_permissions(item.get("permissions"), role),
         }
     return loaded
 
 
 def persist_dynamic_users() -> None:
     save_json_file(USERS_STORE_PATH, USERS)
+
+
+def get_env_user(username: str) -> dict | None:
+    return ENV_USERS.get(username)
 
 
 USERS.update(load_persisted_users())
@@ -552,6 +612,13 @@ def require_password_current(request: Request) -> dict:
     user = get_current_user(request)
     if password_requires_change(user):
         raise HTTPException(status_code=428, detail="Debe cambiar su contrasena para continuar")
+    return user
+
+
+def require_permission(request: Request, permission: str) -> dict:
+    user = require_password_current(request)
+    if not has_permission(user, permission):
+        raise HTTPException(status_code=403, detail="Sin permisos para esta accion")
     return user
 
 
@@ -1307,6 +1374,17 @@ async def login(request: Request):
     password = str(body.get("password", ""))
 
     user = USERS.get(username)
+    env_user = get_env_user(username)
+    if (not user or not verify_password(user["password"], password)) and env_user and verify_password(env_user["password"], password):
+        merged_user = user.copy() if user else {}
+        merged_user.update(env_user)
+        if merged_user.get("role") == "admin":
+            merged_user["force_password_change"] = False
+            merged_user["password_changed_at"] = merged_user.get("password_changed_at", now_ts()) or now_ts()
+        USERS[username] = merged_user
+        persist_dynamic_users()
+        user = merged_user
+
     if not user or not verify_password(user["password"], password):
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
 
@@ -1359,6 +1437,7 @@ def me(request: Request):
         "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
         "password_must_change": password_requires_change(user),
         "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
+        "permissions": user_permissions(user),
     }
 
 
@@ -1374,9 +1453,18 @@ def entry_access(token: str = Query(default="")):
     return {"ok": True}
 
 
+@app.get("/access-link")
+def access_link(token: str = Query(default="")):
+    payload = read_action_token(token, "access")
+    username = str(payload.get("s", "")).strip().lower() if payload else ""
+    if not payload or username not in USERS:
+        raise HTTPException(status_code=404, detail="No encontrado")
+    return {"ok": True}
+
+
 @app.post("/admin/invitations")
 async def create_invitation(request: Request):
-    require_roles(request, {"admin"})
+    require_permission(request, "invitaciones")
     body = await request.json()
     email = str(body.get("email", "")).strip().lower()
     display_name = clean_value(body.get("display_name", ""))
@@ -1388,8 +1476,30 @@ async def create_invitation(request: Request):
         raise HTTPException(status_code=400, detail="Correo invalido")
     if role not in {"tecnologia", "invitado"}:
         raise HTTPException(status_code=400, detail="Rol invalido para invitacion")
+
+    existing_username, existing_user = find_user_by_email(email)
     if username in USERS:
-        raise HTTPException(status_code=400, detail="El usuario ya existe")
+        existing_username = username
+        existing_user = USERS[username]
+
+    if existing_user:
+        token = make_action_token("access", existing_username, ttl_seconds=7 * 24 * 60 * 60)
+        link = build_public_url(request, token, "access")
+        send_link_email(
+            email,
+            "Acceso a Inventario VMS",
+            "Acceso a la plataforma",
+            "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
+            link,
+        )
+        return {
+            "ok": True,
+            "existing": True,
+            "username": existing_username,
+            "email": email,
+            "role": existing_user.get("role", ""),
+            "link": link,
+        }
 
     token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
     invite_store[token] = {
@@ -1441,6 +1551,7 @@ async def accept_invite(request: Request):
         "email_greeting": display_name,
         "password_changed_at": now_ts(),
         "force_password_change": False,
+        "permissions": ROLE_DEFAULT_PERMISSIONS.get(invitation["role"], ["inventario"]),
     }
     invitation["used"] = True
     invite_store[token] = invitation
@@ -1566,11 +1677,12 @@ async def verify_otp(request: Request, response: Response):
         "display_name": user["display_name"],
         "password_must_change": password_requires_change({"username": username, **user}),
         "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
+        "permissions": user_permissions(user),
     }
 
 @app.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...)):
-    require_roles(request, {"admin", "tecnologia"})
+    require_permission(request, "cargar_excel")
     global df_global, current_file_name
     df_global = load_dataframe_from_excel(file.file)
     current_file_name = file.filename or "archivo_subido.xlsx"
@@ -1583,7 +1695,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
 @app.post("/upload-infra-vms")
 async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
-    require_roles(request, {"admin", "tecnologia"})
+    require_permission(request, "dashboard_vms")
     global infra_df_global, infra_file_name
     infra_df_global = load_infra_dataframe_from_excel(file.file)
     infra_file_name = file.filename or "infra_vms.xlsx"
@@ -1596,7 +1708,7 @@ async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
 
 @app.get("/dashboard-vms")
 def dashboard_vms(request: Request):
-    require_roles(request, {"admin", "tecnologia"})
+    require_permission(request, "dashboard_vms")
     return build_vms_dashboard_data()
 
 
@@ -1648,7 +1760,7 @@ def applications_tto(
     q: str = Query(default=""),
     limit: int = Query(default=500, ge=1, le=5000),
 ):
-    require_roles(request, {"admin", "tecnologia"})
+    require_permission(request, "aplicaciones_tto")
     df = smart_search_applications(ensure_applications_loaded(), q).head(limit)
     if df.empty:
         return []
@@ -1663,7 +1775,7 @@ def get_vms(
     status: str = Query(default="todos"),
     limit: int = Query(default=200, ge=1, le=5000),
 ):
-    require_password_current(request)
+    require_permission(request, "inventario")
     result = get_search_scoped_df(q, tipo_entorno, status)
     result = result.drop(columns=["search_blob"], errors="ignore").head(limit)
     return result.fillna("").to_dict(orient="records")
@@ -1675,7 +1787,7 @@ def dashboard(
     status: str = Query(default="todos"),
     tipo_entorno: str = Query(default="todos"),
 ):
-    require_password_current(request)
+    require_permission(request, "inventario")
     df = get_dashboard_scoped_df(tipo_entorno, status)
     snapshot = build_dashboard_snapshot(df)
     snapshot["archivo"] = current_file_name
@@ -1689,7 +1801,7 @@ def search_dashboard(
     tipo_entorno: str = Query(default="todos"),
     status: str = Query(default="todos"),
 ):
-    require_password_current(request)
+    require_permission(request, "inventario")
     result = get_search_scoped_df(q, tipo_entorno, status)
     data = build_search_dashboard(result)
     data["por_ticket"] = ticket_summary(result)
@@ -1704,7 +1816,7 @@ def search_pivot(
     status: str = Query(default="todos"),
     limit: int = Query(default=200, ge=1, le=1000),
 ):
-    require_password_current(request)
+    require_permission(request, "inventario")
     result = get_search_scoped_df(q, tipo_entorno, status)
     return build_assignment_pivot(result, limit=limit)
 
@@ -1716,7 +1828,7 @@ def export_search_assignments(
     tipo_entorno: str = Query(default="todos"),
     status: str = Query(default="todos"),
 ):
-    require_roles(request, {"admin"})
+    require_permission(request, "exportar")
     result = get_search_scoped_df(q, tipo_entorno, status)
     export_df = build_remote_assignments_export(result)
 
@@ -1742,7 +1854,7 @@ def export_card(
     tipo_entorno: str = Query(default="todos"),
     status: str = Query(default="todos"),
 ):
-    require_roles(request, {"admin"})
+    require_permission(request, "exportar")
     export_df = get_card_export_dataframe(segment, q, tipo_entorno, status)
 
     output = io.BytesIO()
@@ -1766,7 +1878,7 @@ def ticket_audit(
     ticket: str = Query(...),
     tipo_entorno: str = Query(default="todos"),
 ):
-    require_password_current(request)
+    require_permission(request, "inventario")
     return build_ticket_audit(ticket, tipo_entorno)
 
 

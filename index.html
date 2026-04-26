@@ -841,6 +841,7 @@
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
+    const accessToken = urlParams.get("access") || "";
     const entryToken = urlParams.get("entry") || "";
     const ACCESS_STORAGE_KEY = "inventario_vms_invited_access";
 
@@ -913,6 +914,10 @@
       if (value === "activo") return "Solo activos";
       if (value === "cesado") return "Solo cesados";
       return "Todos";
+    }
+
+    function hasPermission(permission) {
+      return (currentUser?.permissions || []).includes(permission);
     }
 
     function clearInactivityTimer() {
@@ -1030,8 +1035,8 @@
         return;
       }
 
-      const canUpload = currentUser.role === "admin" || currentUser.role === "tecnologia";
-      const canExport = currentUser.role === "admin";
+      const canUpload = hasPermission("cargar_excel");
+      const canExport = hasPermission("exportar");
       resetInactivityTimer();
       if (currentUser.password_must_change) {
         uploadButton.disabled = true;
@@ -1065,15 +1070,24 @@
       document.querySelectorAll(".admin-export").forEach((button) => {
         button.classList.toggle("hidden", !canExport);
       });
-      document.querySelectorAll(".restricted-tab").forEach((item) => {
-        item.classList.toggle("hidden", !canUpload);
-      });
-      document.querySelectorAll(".admin-only").forEach((item) => {
-        item.classList.toggle("hidden", currentUser.role !== "admin");
-      });
+      document.getElementById("tabInventarioBtn").classList.toggle("hidden", !hasPermission("inventario"));
+      document.getElementById("tabAppsBtn").classList.toggle("hidden", !hasPermission("aplicaciones_tto"));
+      document.getElementById("tabDashboardBtn").classList.toggle("hidden", !hasPermission("dashboard_vms"));
+      document.getElementById("tabAdminBtn").classList.toggle("hidden", !hasPermission("invitaciones"));
       document.querySelectorAll(".auth-only").forEach((item) => {
         item.classList.remove("hidden");
       });
+      if (!hasPermission("inventario")) {
+        if (hasPermission("aplicaciones_tto")) {
+          showTab("apps");
+        } else if (hasPermission("dashboard_vms")) {
+          showTab("dashboard");
+        } else if (hasPermission("invitaciones")) {
+          showTab("admin");
+        } else {
+          showTab("password");
+        }
+      }
     }
 
     function showTab(name) {
@@ -1109,6 +1123,22 @@
           window.history.replaceState({}, document.title, window.location.pathname);
           unlockPage();
           resetAuthForm();
+          document.getElementById("authOverlay").classList.remove("hidden");
+          return;
+        } catch (_) {
+          document.body.classList.add("locked");
+          return;
+        }
+      }
+
+      if (accessToken) {
+        try {
+          await jsonFetch(`${apiBase}/access-link?token=${encodeURIComponent(accessToken)}`, { headers: {} });
+          grantInvitedAccess();
+          window.history.replaceState({}, document.title, window.location.pathname);
+          unlockPage();
+          resetAuthForm();
+          document.getElementById("authStatus").textContent = "Acceso habilitado. Ingresa con tu usuario y contrasena.";
           document.getElementById("authOverlay").classList.remove("hidden");
           return;
         } catch (_) {
@@ -1250,7 +1280,7 @@
     }
 
     async function descargarAsignacionesRemotas() {
-      if (!currentUser || currentUser.role !== "admin") {
+      if (!currentUser || !hasPermission("exportar")) {
         alert("Solo el administrador puede descargar este Excel.");
         return;
       }
@@ -1283,7 +1313,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
     async function descargarSegmento(segment) {
-      if (!currentUser || currentUser.role !== "admin") {
+      if (!currentUser || !hasPermission("exportar")) {
         alert("Solo el administrador puede descargar este Excel.");
         return;
       }
@@ -1450,7 +1480,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function cargarAplicaciones() {
-      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) return;
+      if (!currentUser || !hasPermission("aplicaciones_tto")) return;
       const q = document.getElementById("appsSearch").value.trim();
       const data = await jsonFetch(`${apiBase}/applications-tto?q=${encodeURIComponent(q)}`);
       renderApplications(data);
@@ -1503,7 +1533,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function cargarDashboardVms() {
-      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) return;
+      if (!currentUser || !hasPermission("dashboard_vms")) return;
       const data = await jsonFetch(`${apiBase}/dashboard-vms`);
       renderDashboardVms(data);
     }
@@ -1538,7 +1568,9 @@ document.addEventListener("DOMContentLoaded", () => {
             role: document.getElementById("inviteRole").value,
           }),
         });
-        status.textContent = `Invitacion enviada a ${payload.email}.`;
+        status.textContent = payload.existing
+          ? `Enlace de acceso enviado a ${payload.email}.`
+          : `Invitacion enviada a ${payload.email}.`;
       } catch (error) {
         status.textContent = error.message;
       }
@@ -1688,7 +1720,7 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
     }
 
     async function subirArchivo() {
-      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) {
+      if (!currentUser || !hasPermission("cargar_excel")) {
         alert("Tu rol no tiene permisos para subir archivos.");
         return;
       }
