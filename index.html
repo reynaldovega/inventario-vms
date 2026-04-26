@@ -391,13 +391,55 @@
       color: var(--muted);
     }
 
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 18px 0;
+    }
+
+    .tab-button {
+      background: white;
+      color: var(--brand-dark);
+      border: 1px solid var(--line);
+    }
+
+    .tab-button.active {
+      background: var(--brand);
+      color: white;
+      border-color: transparent;
+    }
+
+    .tab-pane.hidden {
+      display: none;
+    }
+
+    .danger-row td {
+      background: rgba(198, 91, 61, 0.16);
+      color: #6d2818;
+    }
+
+    .inline-form {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .inline-form input,
+    .inline-form select,
+    .inline-form button {
+      width: 100%;
+    }
+
     .search-insights {
       margin-top: 22px;
     }
 
     @media (max-width: 1100px) {
       .toolbar,
-      .grid {
+      .grid,
+      .inline-form {
         grid-template-columns: 1fr;
       }
 
@@ -491,7 +533,9 @@
         <input type="text" id="loginUsername" placeholder="Usuario">
         <input type="text" id="loginOtp" class="hidden" placeholder="Codigo de verificacion" inputmode="numeric" maxlength="6">
         <input type="password" id="loginPassword" placeholder="Contrasena">
+        <input type="password" id="newPasswordConfirm" class="hidden" placeholder="Repetir contrasena nueva">
         <button id="authButton" onclick="login()">Enviar codigo</button>
+        <button class="secondary" id="forgotButton" onclick="solicitarReset()" type="button">Restablecer contrasena</button>
       </div>
       <div class="auth-status" id="authStatus"></div>
       <div class="auth-error" id="authError"></div>
@@ -504,6 +548,14 @@
       <button class="secondary hidden" id="logoutButton" onclick="logout()">Cerrar sesion</button>
     </div>
 
+    <nav class="tabs">
+      <button class="tab-button active" id="tabInventarioBtn" onclick="showTab('inventario')" type="button">Inventario VMS</button>
+      <button class="tab-button restricted-tab hidden" id="tabAppsBtn" onclick="showTab('apps')" type="button">Aplicaciones TTO</button>
+      <button class="tab-button restricted-tab hidden" id="tabDashboardBtn" onclick="showTab('dashboard')" type="button">Dashboard</button>
+      <button class="tab-button admin-only hidden" id="tabAdminBtn" onclick="showTab('admin')" type="button">Invitaciones</button>
+    </nav>
+
+    <div class="tab-pane" id="tabInventario">
     <section class="hero">
       <h1>Inventario VMS</h1>
       <p class="subtitle">
@@ -660,6 +712,97 @@
         <table id="tablaPivot"></table>
       </div>
     </section>
+    </div>
+
+    <div class="tab-pane hidden" id="tabApps">
+      <section class="hero">
+        <h1>Aplicaciones TTO</h1>
+        <p class="subtitle">Inventario recibido desde el instalador de teletrabajo: usuario, equipo, hardware, licencia de Windows, velocidad de internet y estado de Carbon Black / AnyConnect.</p>
+        <div class="toolbar">
+          <div class="panel">
+            <h2>Busqueda inteligente</h2>
+            <div class="search-row">
+              <input type="text" id="appsSearch" placeholder="DNI, nombres, hostname, procesador, RAM, disco, licencia, IP RDP">
+              <button onclick="cargarAplicaciones()">Buscar</button>
+              <button class="secondary" onclick="limpiarAplicaciones()">Limpiar</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Alertas</h2>
+            <p>Las filas se marcan en rojo cuando falta Carbon Black o Cisco AnyConnect en el ultimo reporte del equipo.</p>
+            <div class="cards" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+              <div class="card"><span>Registros</span><strong id="appsTotal">0</strong></div>
+              <div class="card"><span>Alertas</span><strong id="appsAlertas">0</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="panel" style="margin-top:22px;">
+        <div class="table-wrap">
+          <table id="tablaAplicaciones"></table>
+        </div>
+      </section>
+    </div>
+
+    <div class="tab-pane hidden" id="tabDashboard">
+      <section class="hero">
+        <h1>Dashboard</h1>
+        <p class="subtitle">Cruce entre la base de infraestructura y la hoja Inventario VMS. Una VM queda asignada cuando la IP existe en inventario con DNI; queda libre cuando la IP de infraestructura no aparece asignada.</p>
+        <div class="toolbar">
+          <div class="panel">
+            <h2>Cargar Excel infraestructura</h2>
+            <p>Columnas esperadas: A IPAddress, B VMM/TS, C HOSTNAME INFRA, G Sistema Operativo, H Fecha entrega VMS.</p>
+            <div class="upload-row">
+              <input type="file" id="infraFileInput" accept=".xlsx,.xls">
+              <button onclick="subirInfraVms()">Subir base VMS</button>
+            </div>
+            <div class="file-meta" id="infraFileMeta">Sin base de infraestructura cargada.</div>
+          </div>
+          <div class="panel">
+            <h2>Resumen de VM</h2>
+            <div class="cards" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+              <div class="card"><span>Entregadas infra</span><strong id="infraTotal">0</strong></div>
+              <div class="card"><span>Asignadas</span><strong id="infraAsignadas">0</strong></div>
+              <div class="card"><span>Libres</span><strong id="infraLibres">0</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="grid">
+        <div class="panel">
+          <h3>Asignadas por area</h3>
+          <div class="table-wrap"><table class="mini-table" id="tablaDashAreas"></table></div>
+        </div>
+        <div class="panel">
+          <h3>Libres</h3>
+          <div class="table-wrap"><table class="mini-table" id="tablaDashLibres"></table></div>
+        </div>
+      </section>
+      <section class="panel" style="margin-top:22px;">
+        <h3>Asignadas IP + DNI</h3>
+        <div class="table-wrap"><table id="tablaDashAsignadas"></table></div>
+      </section>
+    </div>
+
+    <div class="tab-pane hidden" id="tabAdmin">
+      <section class="hero">
+        <h1>Invitaciones</h1>
+        <p class="subtitle">Solo el administrador puede invitar usuarios. El invitado recibe un enlace por correo, crea su contrasena con politica de seguridad y luego entra con verificacion por correo.</p>
+        <div class="panel">
+          <h2>Nueva invitacion</h2>
+          <div class="inline-form">
+            <input type="email" id="inviteEmail" placeholder="Correo">
+            <input type="text" id="inviteName" placeholder="Nombre completo">
+            <select id="inviteRole">
+              <option value="invitado">Lectura</option>
+              <option value="tecnologia">Tecnologia</option>
+            </select>
+            <button onclick="enviarInvitacion()">Enviar invitacion</button>
+          </div>
+          <div class="helper" id="inviteStatus"></div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script>
@@ -671,6 +814,9 @@
     let pendingUsername = "";
     let inactivityTimer = null;
     let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteToken = urlParams.get("invite") || "";
+    const resetToken = urlParams.get("reset") || "";
 
     function currentFilters() {
       return {
@@ -776,14 +922,34 @@
       pendingUsername = "";
       document.getElementById("loginOtp").value = "";
       document.getElementById("loginPassword").value = "";
+      document.getElementById("newPasswordConfirm").value = "";
       document.getElementById("authError").textContent = "";
       document.getElementById("authStatus").textContent = "";
       document.getElementById("authTitle").textContent = "Acceso seguro";
       document.getElementById("authDescription").textContent =
         "Ingresa con tu usuario y contrasena para usar el inventario. Despues te enviaremos un codigo al correo configurado para completar el acceso.";
+      document.getElementById("loginUsername").classList.remove("hidden");
       document.getElementById("loginPassword").classList.remove("hidden");
       document.getElementById("loginOtp").classList.add("hidden");
+      document.getElementById("newPasswordConfirm").classList.add("hidden");
+      document.getElementById("forgotButton").classList.remove("hidden");
       document.getElementById("authButton").textContent = "Enviar codigo";
+    }
+
+    function setPasswordTokenStep(kind) {
+      authStep = kind;
+      document.getElementById("authError").textContent = "";
+      document.getElementById("authStatus").textContent = "Politica: minimo 10 caracteres, mayuscula, minuscula, numero y simbolo.";
+      document.getElementById("authTitle").textContent = kind === "invite" ? "Crear acceso" : "Nueva contrasena";
+      document.getElementById("authDescription").textContent = kind === "invite"
+        ? "Define tu contrasena para activar la invitacion."
+        : "Define una nueva contrasena para tu usuario.";
+      document.getElementById("loginUsername").classList.add("hidden");
+      document.getElementById("loginOtp").classList.add("hidden");
+      document.getElementById("loginPassword").classList.remove("hidden");
+      document.getElementById("newPasswordConfirm").classList.remove("hidden");
+      document.getElementById("forgotButton").classList.add("hidden");
+      document.getElementById("authButton").textContent = kind === "invite" ? "Crear cuenta" : "Actualizar contrasena";
     }
 
     function setOtpStep(username, emailHint) {
@@ -820,6 +986,8 @@
           card.classList.remove("exportable");
           card.removeAttribute("title");
         });
+        document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
+        showTab("inventario");
         return;
       }
 
@@ -845,9 +1013,52 @@
       document.querySelectorAll(".admin-export").forEach((button) => {
         button.classList.toggle("hidden", !canExport);
       });
+      document.querySelectorAll(".restricted-tab").forEach((item) => {
+        item.classList.toggle("hidden", !canUpload);
+      });
+      document.querySelectorAll(".admin-only").forEach((item) => {
+        item.classList.toggle("hidden", currentUser.role !== "admin");
+      });
+    }
+
+    function showTab(name) {
+      const panes = {
+        inventario: "tabInventario",
+        apps: "tabApps",
+        dashboard: "tabDashboard",
+        admin: "tabAdmin",
+      };
+      const buttons = {
+        inventario: "tabInventarioBtn",
+        apps: "tabAppsBtn",
+        dashboard: "tabDashboardBtn",
+        admin: "tabAdminBtn",
+      };
+      Object.entries(panes).forEach(([key, id]) => {
+        document.getElementById(id).classList.toggle("hidden", key !== name);
+      });
+      Object.entries(buttons).forEach(([key, id]) => {
+        document.getElementById(id).classList.toggle("active", key === name);
+      });
+      if (name === "apps") cargarAplicaciones();
+      if (name === "dashboard") cargarDashboardVms();
     }
 
     async function loadSession() {
+      if (inviteToken) {
+        currentUser = null;
+        applyRolePermissions();
+        setPasswordTokenStep("invite");
+        document.getElementById("authOverlay").classList.remove("hidden");
+        return;
+      }
+      if (resetToken) {
+        currentUser = null;
+        applyRolePermissions();
+        setPasswordTokenStep("reset");
+        document.getElementById("authOverlay").classList.remove("hidden");
+        return;
+      }
       try {
         currentUser = await jsonFetch(`${apiBase}/me`, { headers: {} });
         sessionIdleTimeoutMs = (currentUser.session_timeout_seconds || 7200) * 1000;
@@ -869,6 +1080,24 @@
       errorBox.textContent = "";
 
       try {
+        if (authStep === "invite" || authStep === "reset") {
+          const password = document.getElementById("loginPassword").value;
+          const confirm = document.getElementById("newPasswordConfirm").value;
+          if (password !== confirm) {
+            throw new Error("Las contrasenas no coinciden.");
+          }
+          const endpoint = authStep === "invite" ? "accept-invite" : "password-reset/confirm";
+          const token = authStep === "invite" ? inviteToken : resetToken;
+          const payload = await jsonFetch(`${apiBase}/${endpoint}`, {
+            method: "POST",
+            body: JSON.stringify({ token, password }),
+          });
+          window.history.replaceState({}, document.title, window.location.pathname);
+          resetAuthForm();
+          document.getElementById("authStatus").textContent = payload.message || "Operacion completada. Ya puedes iniciar sesion.";
+          return;
+        }
+
         if (authStep === "credentials") {
           const username = document.getElementById("loginUsername").value.trim();
           const password = document.getElementById("loginPassword").value;
@@ -893,6 +1122,25 @@
         resetAuthForm();
         applyRolePermissions();
         await cargarInicial();
+      } catch (error) {
+        errorBox.textContent = error.message;
+      }
+    }
+
+    async function solicitarReset() {
+      const errorBox = document.getElementById("authError");
+      errorBox.textContent = "";
+      const identifier = document.getElementById("loginUsername").value.trim();
+      if (!identifier) {
+        errorBox.textContent = "Escribe tu usuario o correo para restablecer.";
+        return;
+      }
+      try {
+        const payload = await jsonFetch(`${apiBase}/password-reset/request`, {
+          method: "POST",
+          body: JSON.stringify({ identifier }),
+        });
+        document.getElementById("authStatus").textContent = payload.message;
       } catch (error) {
         errorBox.textContent = error.message;
       }
@@ -1080,6 +1328,133 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `).join("");
       table.innerHTML = head + rows;
+    }
+
+    function renderApplications(data) {
+      const table = document.getElementById("tablaAplicaciones");
+      const alertas = data.filter(item => item.estado_alerta === "ALERTA").length;
+      setText("appsTotal", data.length);
+      setText("appsAlertas", alertas);
+      if (!data.length) {
+        table.innerHTML = `<tr><td class="empty">No hay reportes de aplicativos para mostrar.</td></tr>`;
+        return;
+      }
+      const headers = ["Alerta", "DNI", "Nombre", "Hostname", "Procesador", "RAM", "Disco", "Windows", "Licencia", "Internet", "Carbon", "AnyConnect", "RDP destino", "Reporte"];
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const rows = data.map(item => `
+        <tr class="${item.estado_alerta === "ALERTA" ? "danger-row" : ""}">
+          <td>${item.estado_alerta || "-"}</td>
+          <td>${item.dni || "-"}</td>
+          <td>${item.nombre_completo || "-"}</td>
+          <td>${item.hostname || "-"}</td>
+          <td>${item.processor || "-"}</td>
+          <td>${item.memory_ram || "-"}</td>
+          <td>${item.disk || "-"}</td>
+          <td>${item.windows_version || "-"}</td>
+          <td>${item.windows_license || "-"}</td>
+          <td>${item.internet_speed || "-"}</td>
+          <td>${item.carbon_black_installed || "-"}</td>
+          <td>${item.anyconnect_installed || "-"}</td>
+          <td>${item.rdp_remote_ips || "-"}</td>
+          <td>${item.reported_at || "-"}</td>
+        </tr>
+      `).join("");
+      table.innerHTML = head + rows;
+    }
+
+    async function cargarAplicaciones() {
+      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) return;
+      const q = document.getElementById("appsSearch").value.trim();
+      const data = await jsonFetch(`${apiBase}/applications-tto?q=${encodeURIComponent(q)}`);
+      renderApplications(data);
+    }
+
+    function limpiarAplicaciones() {
+      document.getElementById("appsSearch").value = "";
+      cargarAplicaciones();
+    }
+
+    function renderDashboardVms(data) {
+      setText("infraTotal", data.total_infra || 0);
+      setText("infraAsignadas", data.total_asignadas || 0);
+      setText("infraLibres", data.total_libres || 0);
+      document.getElementById("infraFileMeta").textContent = data.archivo
+        ? `Base infraestructura: ${data.archivo}`
+        : "Sin base de infraestructura cargada.";
+      renderMiniTable(
+        "tablaDashAreas",
+        ["Area", "Cantidad"],
+        (data.por_area || []).map(item => `<tr><td>${item.area || "-"}</td><td>${item.cantidad}</td></tr>`),
+        "Sin asignaciones cruzadas"
+      );
+      renderMiniTable(
+        "tablaDashLibres",
+        ["IP", "Hostname", "SO"],
+        (data.libres || []).slice(0, 80).map(item => `<tr><td>${item.ip}</td><td>${item.hostname_infra || "-"}</td><td>${item.sistema_operativo || "-"}</td></tr>`),
+        "Sin VMs libres"
+      );
+      const table = document.getElementById("tablaDashAsignadas");
+      const asignadas = data.asignadas || [];
+      if (!asignadas.length) {
+        table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
+        return;
+      }
+      const headers = ["IP", "DNI", "Nombre", "Area", "Centro costo", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
+        <tr>
+          <td>${item.ip || "-"}</td>
+          <td>${item.dni || "-"}</td>
+          <td>${item.nombre_completo || "-"}</td>
+          <td>${item.area || "-"}</td>
+          <td>${item.centro_costo || "-"}</td>
+          <td>${item.hostname_infra || "-"}</td>
+          <td>${item.hostname || "-"}</td>
+          <td>${item.sistema_operativo || "-"}</td>
+          <td>${item.fecha_entrega || "-"}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function cargarDashboardVms() {
+      if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "tecnologia")) return;
+      const data = await jsonFetch(`${apiBase}/dashboard-vms`);
+      renderDashboardVms(data);
+    }
+
+    async function subirInfraVms() {
+      const input = document.getElementById("infraFileInput");
+      const file = input.files[0];
+      if (!file) {
+        alert("Selecciona el Excel de infraestructura.");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await jsonFetch(`${apiBase}/upload-infra-vms`, {
+        method: "POST",
+        headers: {},
+        body: formData,
+      });
+      await cargarDashboardVms();
+      alert(`${response.mensaje}. Registros: ${response.registros}`);
+    }
+
+    async function enviarInvitacion() {
+      const status = document.getElementById("inviteStatus");
+      status.textContent = "";
+      try {
+        const payload = await jsonFetch(`${apiBase}/admin/invitations`, {
+          method: "POST",
+          body: JSON.stringify({
+            email: document.getElementById("inviteEmail").value.trim(),
+            display_name: document.getElementById("inviteName").value.trim(),
+            role: document.getElementById("inviteRole").value,
+          }),
+        });
+        status.textContent = `Invitacion enviada a ${payload.email}.`;
+      } catch (error) {
+        status.textContent = error.message;
+      }
     }
 
     function renderTicketAudit(data) {

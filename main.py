@@ -15,7 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -38,6 +38,15 @@ SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
+infra_df_global = pd.DataFrame()
+infra_file_name = ""
+applications_df_global = pd.DataFrame()
+
+DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
+USERS_STORE_PATH = DATA_DIR / "users.json"
+INVITES_STORE_PATH = DATA_DIR / "invites.json"
+APPLICATIONS_STORE_PATH = DATA_DIR / "applications_tto.json"
+AGENT_REPORT_TOKEN = os.getenv("AGENT_REPORT_TOKEN", "").strip()
 
 USERS = {
     "admin": {
@@ -63,7 +72,17 @@ USERS = {
     },
 }
 
+PASSWORD_POLICY = {
+    "min_length": 10,
+    "require_upper": True,
+    "require_lower": True,
+    "require_digit": True,
+    "require_symbol": True,
+}
+
 otp_store = {}  # {username: (codigo, expira)}
+invite_store = {}
+password_reset_store = {}
 EXCLUDED_ASSIGNMENT_TAGS = [
     "no existe",
     "dotacion",
@@ -101,6 +120,99 @@ def is_secure_cookie_enabled() -> bool:
     return os.getenv("COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes"} or bool(
         os.getenv("RENDER")
     )
+
+
+def now_ts() -> int:
+    return int(time.time())
+
+
+def ensure_data_dir() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_json_file(path: Path, default):
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def save_json_file(path: Path, payload) -> None:
+    ensure_data_dir()
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def hash_password(password: str, salt: str | None = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 150000)
+    return f"pbkdf2_sha256${salt}${digest.hex()}"
+
+
+def verify_password(stored: str, password: str) -> bool:
+    if stored.startswith("pbkdf2_sha256$"):
+        try:
+            _, salt, expected = stored.split("$", 2)
+        except ValueError:
+            return False
+        return hmac.compare_digest(hash_password(password, salt), stored)
+    return hmac.compare_digest(stored, password)
+
+
+def validate_password_policy(password: str, username: str = "", email: str = "", display_name: str = "") -> list[str]:
+    errors = []
+    if len(password) < PASSWORD_POLICY["min_length"]:
+        errors.append("Debe tener al menos 10 caracteres.")
+    if PASSWORD_POLICY["require_upper"] and not re.search(r"[A-Z]", password):
+        errors.append("Debe incluir una letra mayuscula.")
+    if PASSWORD_POLICY["require_lower"] and not re.search(r"[a-z]", password):
+        errors.append("Debe incluir una letra minuscula.")
+    if PASSWORD_POLICY["require_digit"] and not re.search(r"\d", password):
+        errors.append("Debe incluir un numero.")
+    if PASSWORD_POLICY["require_symbol"] and not re.search(r"[^A-Za-z0-9]", password):
+        errors.append("Debe incluir un simbolo.")
+
+    normalized_password = normalize_text(password)
+    blocked_parts = [
+        normalize_text(username),
+        normalize_text(email.split("@", 1)[0] if "@" in email else email),
+    ]
+    blocked_parts.extend(part for part in normalize_text(display_name).split() if len(part) >= 4)
+    if any(part and len(part) >= 4 and part in normalized_password for part in blocked_parts):
+        errors.append("No debe contener datos evidentes del usuario.")
+    return errors
+
+
+def make_action_token(kind: str, subject: str, ttl_seconds: int = 24 * 60 * 60) -> str:
+    payload = {
+        "k": kind,
+        "s": subject,
+        "n": secrets.token_urlsafe(18),
+        "iat": now_ts(),
+        "exp": now_ts() + ttl_seconds,
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"))
+    payload_b64 = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("utf-8")
+    return f"{payload_b64}.{sign_data(payload_b64)}"
+
+
+def read_action_token(token: str, expected_kind: str) -> dict | None:
+    session = read_session_token(token)
+    if session:
+        return None
+    if not token or "." not in token:
+        return None
+    payload_b64, signature = token.rsplit(".", 1)
+    if not hmac.compare_digest(sign_data(payload_b64), signature):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8"))
+    except Exception:
+        return None
+    if payload.get("k") != expected_kind or now_ts() > int(payload.get("exp", 0)):
+        return None
+    return payload
 
 
 def enviar_correo(destino: str, codigo: str, display_name: str, email_greeting: str = "") -> None:
@@ -180,6 +292,59 @@ def enviar_correo(destino: str, codigo: str, display_name: str, email_greeting: 
         server.send_message(msg)
 
 
+def enviar_correo_html(destino: str, asunto: str, texto: str, html: str) -> None:
+    remitente = os.getenv("EMAIL_USER", "").strip()
+    clave = os.getenv("EMAIL_PASS", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
+    smtp_port = int(os.getenv("SMTP_PORT", "465"))
+
+    if not remitente or not clave:
+        raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
+
+    msg = MIMEMultipart("alternative")
+    msg.attach(MIMEText(texto, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+    msg["Subject"] = asunto
+    msg["From"] = remitente
+    msg["To"] = destino
+
+    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+        server.login(remitente, clave)
+        server.send_message(msg)
+
+
+def build_public_url(request: Request, token: str, mode: str) -> str:
+    base_url = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if not base_url:
+        base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/?{mode}={token}"
+
+
+def send_link_email(destino: str, asunto: str, titulo: str, descripcion: str, link: str) -> None:
+    texto = "\n".join([titulo, "", descripcion, "", link, "", "Area Sistema Tecnologia"])
+    html = f"""
+    <html>
+      <body style="margin:0; padding:24px; background:#f4efe6; font-family:Segoe UI,Tahoma,Arial,sans-serif; color:#2b241d;">
+        <div style="max-width:640px; margin:0 auto; background:#fffdf9; border:1px solid #e4d8c6; border-radius:22px; overflow:hidden;">
+          <div style="background:#1e6f5c; color:#fff; padding:24px 28px;">
+            <div style="font-size:13px; letter-spacing:1.4px; text-transform:uppercase;">Inventario VMS</div>
+            <h1 style="margin:8px 0 0; font-size:26px;">{titulo}</h1>
+          </div>
+          <div style="padding:28px;">
+            <p style="font-size:15px; line-height:1.7; color:#5b5247;">{descripcion}</p>
+            <p style="margin:24px 0;">
+              <a href="{link}" style="display:inline-block; background:#1e6f5c; color:#fff; padding:13px 18px; border-radius:12px; text-decoration:none; font-weight:700;">Abrir enlace seguro</a>
+            </p>
+            <p style="font-size:13px; line-height:1.6; color:#7a6f62;">Si el boton no abre, copie este enlace:<br>{link}</p>
+            <div style="padding-top:18px; border-top:1px solid #eee2d2; font-size:14px; color:#7a6f62;">Area Sistema Tecnologia</div>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+    enviar_correo_html(destino, asunto, texto, html)
+
+
 def load_users_from_env() -> dict:
     raw_users = os.getenv("APP_USERS_JSON", "").strip()
     if not raw_users:
@@ -199,6 +364,7 @@ def load_users_from_env() -> dict:
             continue
         username = str(item.get("username", "")).strip().lower()
         password = str(item.get("password", ""))
+        password_hash = str(item.get("password_hash", ""))
         role = str(item.get("role", "")).strip().lower()
         display_name = str(item.get("display_name", "")).strip() or username
         email = str(item.get("email", "")).strip().lower()
@@ -207,11 +373,11 @@ def load_users_from_env() -> dict:
         if role == "ti":
             role = "tecnologia"
 
-        if not username or not password or role not in {"admin", "tecnologia", "invitado"}:
+        if not username or (not password and not password_hash) or role not in {"admin", "tecnologia", "invitado"}:
             continue
 
         loaded_users[username] = {
-            "password": password,
+            "password": password_hash or password,
             "role": role,
             "display_name": display_name,
             "email": email,
@@ -222,6 +388,41 @@ def load_users_from_env() -> dict:
 
 
 USERS = load_users_from_env()
+ENV_USERNAMES = set(USERS.keys())
+
+
+def load_persisted_users() -> dict:
+    stored = load_json_file(USERS_STORE_PATH, {})
+    if not isinstance(stored, dict):
+        return {}
+    loaded = {}
+    for username, item in stored.items():
+        if not isinstance(item, dict):
+            continue
+        user = str(username).strip().lower()
+        role = str(item.get("role", "")).strip().lower()
+        if role == "ti":
+            role = "tecnologia"
+        password = str(item.get("password", ""))
+        if not user or not password or role not in {"admin", "tecnologia", "invitado"}:
+            continue
+        loaded[user] = {
+            "password": password,
+            "role": role,
+            "display_name": str(item.get("display_name", user)).strip() or user,
+            "email": str(item.get("email", "")).strip().lower(),
+            "email_greeting": str(item.get("email_greeting", "")).strip(),
+        }
+    return loaded
+
+
+def persist_dynamic_users() -> None:
+    dynamic = {username: user for username, user in USERS.items() if username not in ENV_USERNAMES}
+    save_json_file(USERS_STORE_PATH, dynamic)
+
+
+USERS.update(load_persisted_users())
+invite_store = load_json_file(INVITES_STORE_PATH, {})
 
 
 def normalize_text(value: object) -> str:
@@ -420,6 +621,103 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
 def load_dataframe_from_excel(file_source) -> pd.DataFrame:
     df = pd.read_excel(file_source, dtype=str)
     return procesar_df(df)
+
+
+def load_infra_dataframe_from_excel(file_source) -> pd.DataFrame:
+    raw = pd.read_excel(file_source, dtype=str).fillna("")
+    raw.columns = [clean_value(col) for col in raw.columns]
+    processed = pd.DataFrame()
+    processed["ip"] = get_series_by_header_alias(raw, ["IPAddress", "IP Address", "IP"]).map(clean_value).str.strip()
+    processed["tipo_vms_ts"] = get_series_by_header_alias(raw, ["VMM/TS", "VMS/TS", "VMM TS"]).map(clean_value)
+    processed["hostname_infra"] = get_series_by_header_alias(raw, ["HOSTNAME INFRA", "Hostname Infra"]).map(clean_value)
+    processed["sistema_operativo"] = get_series_by_header_alias(raw, ["Sistema Operativo", "SO"]).map(clean_value)
+    processed["fecha_entrega"] = format_date(get_series_by_header_alias(raw, ["FECHA ENTREGA VMS", "Fecha Entrega"]))
+    processed["ip_norm"] = processed["ip"].map(normalize_text)
+    return processed[processed["ip_norm"] != ""].fillna("")
+
+
+def build_vms_dashboard_data() -> dict:
+    inventory = ensure_data_loaded().copy()
+    infra = infra_df_global.copy()
+    if infra.empty:
+        return {
+            "archivo": infra_file_name,
+            "total_infra": 0,
+            "total_asignadas": 0,
+            "total_libres": 0,
+            "por_area": [],
+            "por_centro_costo": [],
+            "por_so": [],
+            "asignadas": [],
+            "libres": [],
+        }
+
+    assigned = inventory[has_valid_ip(inventory["ip"]) & has_valid_dni(inventory["dni"])].copy()
+    assigned["ip_norm"] = assigned["ip"].map(normalize_text)
+    assigned = assigned.drop_duplicates(subset=["ip_norm"], keep="first")
+
+    merged = infra.merge(
+        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "hostname", "ticket"]],
+        on="ip_norm",
+        how="left",
+    ).fillna("")
+    merged["estado_cruce"] = merged["dni"].apply(lambda value: "ASIGNADA" if clean_value(value) else "LIBRE")
+
+    assigned_rows = merged[merged["estado_cruce"] == "ASIGNADA"].copy()
+    free_rows = merged[merged["estado_cruce"] == "LIBRE"].copy()
+
+    return {
+        "archivo": infra_file_name,
+        "total_infra": int(len(infra)),
+        "total_asignadas": int(len(assigned_rows)),
+        "total_libres": int(len(free_rows)),
+        "por_area": summarize_group(assigned_rows.rename(columns={"area": "area"}), "area", limit=12),
+        "por_centro_costo": summarize_group(assigned_rows.rename(columns={"centro_costo": "centro_costo"}), "centro_costo", limit=12),
+        "por_so": summarize_group(merged.rename(columns={"sistema_operativo": "sistema_operativo"}), "sistema_operativo", limit=8),
+        "asignadas": assigned_rows.head(500).to_dict(orient="records"),
+        "libres": free_rows.head(500).to_dict(orient="records"),
+    }
+
+
+def load_applications_store() -> pd.DataFrame:
+    raw = load_json_file(APPLICATIONS_STORE_PATH, [])
+    if not isinstance(raw, list):
+        raw = []
+    return pd.DataFrame(raw)
+
+
+def save_applications_store(df: pd.DataFrame) -> None:
+    records = df.fillna("").to_dict(orient="records")
+    save_json_file(APPLICATIONS_STORE_PATH, records)
+
+
+def ensure_applications_loaded() -> pd.DataFrame:
+    global applications_df_global
+    if applications_df_global.empty:
+        applications_df_global = load_applications_store()
+    return applications_df_global
+
+
+def normalize_bool(value: object) -> bool:
+    return normalize_text(value) in {"1", "true", "si", "yes", "ok", "installed", "instalado"}
+
+
+def application_row_status(row: dict) -> str:
+    carbon_ok = normalize_bool(row.get("carbon_black_installed", ""))
+    anyconnect_ok = normalize_bool(row.get("anyconnect_installed", ""))
+    return "ALERTA" if not carbon_ok or not anyconnect_ok else "OK"
+
+
+def smart_search_applications(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    normalized_query = normalize_text(query)
+    if df.empty or not normalized_query:
+        return df
+    blob = df.fillna("").astype(str).apply(lambda row: " ".join(normalize_text(value) for value in row), axis=1)
+    terms = [term for term in normalized_query.split() if term]
+    mask = pd.Series(True, index=df.index)
+    for term in terms:
+        mask &= blob.str.contains(term, na=False)
+    return df[mask].copy()
 
 
 def ensure_data_loaded() -> pd.DataFrame:
@@ -982,7 +1280,7 @@ async def login(request: Request):
     password = str(body.get("password", ""))
 
     user = USERS.get(username)
-    if not user or user["password"] != password:
+    if not user or not verify_password(user["password"], password):
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
 
     email = clean_value(user.get("email", "")).lower()
@@ -1034,6 +1332,134 @@ def me(request: Request):
         "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
     }
 
+
+@app.get("/password-policy")
+def password_policy():
+    return PASSWORD_POLICY
+
+
+@app.post("/admin/invitations")
+async def create_invitation(request: Request):
+    require_roles(request, {"admin"})
+    body = await request.json()
+    email = str(body.get("email", "")).strip().lower()
+    display_name = clean_value(body.get("display_name", ""))
+    role = str(body.get("role", "invitado")).strip().lower()
+    username = str(body.get("username", "")).strip().lower() or email.split("@", 1)[0]
+    if role == "ti":
+        role = "tecnologia"
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Correo invalido")
+    if role not in {"tecnologia", "invitado"}:
+        raise HTTPException(status_code=400, detail="Rol invalido para invitacion")
+    if username in USERS:
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
+
+    token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
+    invite_store[token] = {
+        "username": username,
+        "email": email,
+        "display_name": display_name or username,
+        "role": role,
+        "created_at": now_ts(),
+        "expires_at": now_ts() + 48 * 60 * 60,
+        "used": False,
+    }
+    save_json_file(INVITES_STORE_PATH, invite_store)
+
+    link = build_public_url(request, token, "invite")
+    send_link_email(
+        email,
+        "Invitacion de acceso | Inventario VMS",
+        "Invitacion de acceso",
+        "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
+        link,
+    )
+    return {"ok": True, "username": username, "email": email, "role": role, "link": link}
+
+
+@app.post("/accept-invite")
+async def accept_invite(request: Request):
+    body = await request.json()
+    token = str(body.get("token", "")).strip()
+    password = str(body.get("password", ""))
+    payload = read_action_token(token, "invite")
+    invitation = invite_store.get(token)
+    if not payload or not invitation or invitation.get("used") or now_ts() > int(invitation.get("expires_at", 0)):
+        raise HTTPException(status_code=400, detail="Invitacion invalida o expirada")
+
+    username = str(invitation["username"]).strip().lower()
+    email = str(invitation["email"]).strip().lower()
+    display_name = clean_value(invitation.get("display_name", username))
+    errors = validate_password_policy(password, username, email, display_name)
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+    if username in USERS:
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
+
+    USERS[username] = {
+        "password": hash_password(password),
+        "role": invitation["role"],
+        "display_name": display_name,
+        "email": email,
+        "email_greeting": display_name,
+    }
+    invitation["used"] = True
+    invite_store[token] = invitation
+    persist_dynamic_users()
+    save_json_file(INVITES_STORE_PATH, invite_store)
+    return {"ok": True, "username": username, "message": "Cuenta creada. Ya puede iniciar sesion."}
+
+
+@app.post("/password-reset/request")
+async def request_password_reset(request: Request):
+    body = await request.json()
+    identifier = str(body.get("identifier", "")).strip().lower()
+    user_item = None
+    username = ""
+    for candidate, user in USERS.items():
+        if candidate == identifier or str(user.get("email", "")).strip().lower() == identifier:
+            username = candidate
+            user_item = user
+            break
+    if user_item and clean_value(user_item.get("email", "")):
+        token = make_action_token("reset", username, ttl_seconds=60 * 60)
+        password_reset_store[token] = {"username": username, "expires_at": now_ts() + 60 * 60, "used": False}
+        link = build_public_url(request, token, "reset")
+        send_link_email(
+            user_item["email"],
+            "Restablecer contrasena | Inventario VMS",
+            "Restablecer contrasena",
+            "Use este enlace para definir una nueva contrasena. El enlace vence en 60 minutos.",
+            link,
+        )
+    return {"ok": True, "message": "Si el usuario existe, se enviara un enlace al correo registrado."}
+
+
+@app.post("/password-reset/confirm")
+async def confirm_password_reset(request: Request):
+    body = await request.json()
+    token = str(body.get("token", "")).strip()
+    password = str(body.get("password", ""))
+    payload = read_action_token(token, "reset")
+    reset_item = password_reset_store.get(token)
+    if not payload or not reset_item or reset_item.get("used") or now_ts() > int(reset_item.get("expires_at", 0)):
+        raise HTTPException(status_code=400, detail="Enlace invalido o expirado")
+    username = str(reset_item.get("username", "")).strip().lower()
+    user = USERS.get(username)
+    if not user:
+        raise HTTPException(status_code=400, detail="Usuario no encontrado")
+    errors = validate_password_policy(password, username, user.get("email", ""), user.get("display_name", ""))
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+    user["password"] = hash_password(password)
+    USERS[username] = user
+    reset_item["used"] = True
+    password_reset_store[token] = reset_item
+    persist_dynamic_users()
+    return {"ok": True, "message": "Contrasena actualizada."}
+
+
 @app.post("/verify-otp")
 async def verify_otp(request: Request, response: Response):
     body = await request.json()
@@ -1083,6 +1509,80 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         "registros": int(len(df_global)),
         "archivo": current_file_name,
     }
+
+
+@app.post("/upload-infra-vms")
+async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
+    require_roles(request, {"admin", "tecnologia"})
+    global infra_df_global, infra_file_name
+    infra_df_global = load_infra_dataframe_from_excel(file.file)
+    infra_file_name = file.filename or "infra_vms.xlsx"
+    return {
+        "mensaje": "Base de infraestructura cargada correctamente",
+        "registros": int(len(infra_df_global)),
+        "archivo": infra_file_name,
+    }
+
+
+@app.get("/dashboard-vms")
+def dashboard_vms(request: Request):
+    require_roles(request, {"admin", "tecnologia"})
+    return build_vms_dashboard_data()
+
+
+@app.post("/applications/report")
+async def receive_application_report(
+    request: Request,
+    x_agent_token: str = Header(default=""),
+    authorization: str = Header(default=""),
+):
+    expected = AGENT_REPORT_TOKEN
+    received = x_agent_token or authorization.replace("Bearer ", "", 1).strip()
+    if expected and not hmac.compare_digest(expected, received):
+        raise HTTPException(status_code=403, detail="Token de agente invalido")
+
+    body = await request.json()
+    record = {key: clean_value(value) for key, value in body.items()}
+    record["reported_at"] = clean_value(record.get("reported_at")) or time.strftime("%Y-%m-%d %H:%M:%S")
+    record["dni"] = clean_value(record.get("dni"))
+    record["nombre_completo"] = clean_value(record.get("nombre_completo"))
+    record["hostname"] = clean_value(record.get("hostname")) or clean_value(record.get("computer_name"))
+    record["estado_alerta"] = application_row_status(record)
+
+    if not record["dni"]:
+        raise HTTPException(status_code=400, detail="DNI requerido")
+
+    global applications_df_global
+    applications_df_global = ensure_applications_loaded()
+    new_df = pd.DataFrame([record])
+    if applications_df_global.empty:
+        applications_df_global = new_df
+    else:
+        if "dni" not in applications_df_global.columns:
+            applications_df_global["dni"] = ""
+        if "hostname" not in applications_df_global.columns:
+            applications_df_global["hostname"] = ""
+        key_mask = (
+            (applications_df_global["dni"].fillna("").astype(str) == record["dni"])
+            & (applications_df_global["hostname"].fillna("").astype(str).str.lower() == record["hostname"].lower())
+        )
+        applications_df_global = applications_df_global[~key_mask]
+        applications_df_global = pd.concat([applications_df_global, new_df], ignore_index=True)
+    save_applications_store(applications_df_global)
+    return {"ok": True, "estado_alerta": record["estado_alerta"]}
+
+
+@app.get("/applications-tto")
+def applications_tto(
+    request: Request,
+    q: str = Query(default=""),
+    limit: int = Query(default=500, ge=1, le=5000),
+):
+    require_roles(request, {"admin", "tecnologia"})
+    df = smart_search_applications(ensure_applications_loaded(), q).head(limit)
+    if df.empty:
+        return []
+    return df.fillna("").to_dict(orient="records")
 
 
 @app.get("/vms")
