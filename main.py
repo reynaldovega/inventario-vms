@@ -51,6 +51,7 @@ AGENT_REPORT_TOKEN = os.getenv("AGENT_REPORT_TOKEN", "").strip()
 ENTRY_ACCESS_TOKEN = os.getenv("ENTRY_ACCESS_TOKEN", "").strip()
 SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
 SMTP_SECURITY = os.getenv("SMTP_SECURITY", "ssl").strip().lower()
+SHOW_MAIL_ERROR_DETAILS = os.getenv("SHOW_MAIL_ERROR_DETAILS", "").strip().lower() in {"1", "true", "yes"}
 
 USERS = {
     "admin": {
@@ -1425,11 +1426,15 @@ async def login(request: Request):
             user.get("email_greeting", ""),
         )
     except Exception as exc:
-        print(f"[ERROR] No se pudo enviar OTP a {email}: {exc}", flush=True)
+        error_text = f"{type(exc).__name__}: {exc}"
+        print(f"[ERROR] No se pudo enviar OTP a {email}: {error_text}", flush=True)
         otp_store.pop(username, None)
+        detail = "No se pudo enviar el codigo al correo configurado"
+        if SHOW_MAIL_ERROR_DETAILS or user.get("role") == "admin":
+            detail = f"{detail}. SMTP: {error_text}"
         raise HTTPException(
             status_code=500,
-            detail="No se pudo enviar el codigo al correo configurado",
+            detail=detail,
         )
 
     return {
