@@ -78,6 +78,7 @@ Opcionalmente tambien puedes definir:
 
 - `SMTP_HOST`
 - `SMTP_PORT`
+- `SMTP_SECURITY=ssl`
 - `COOKIE_SECURE=true`
 - `SESSION_TIMEOUT_SECONDS=7200`
 - `PASSWORD_MAX_AGE_SECONDS=7776000`
@@ -211,6 +212,38 @@ El login ahora funciona en 2 pasos:
 3. el usuario escribe ese codigo y recien alli se crea la sesion
 
 Si un usuario no tiene `email`, no podra terminar el ingreso.
+
+## 5.1.1 Recomendacion SMTP
+
+Para Gmail:
+
+```env
+EMAIL_USER=tu_correo@gmail.com
+EMAIL_PASS=contrasena_de_aplicacion_gmail
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURITY=ssl
+SMTP_TIMEOUT_SECONDS=20
+```
+
+`EMAIL_PASS` debe ser una contrasena de aplicacion de Google, no la contrasena normal del correo.
+
+Para Brevo/Sendinblue, recomendado si Gmail bloquea o demora:
+
+```env
+EMAIL_USER=tu_login_smtp_de_brevo
+EMAIL_PASS=tu_clave_smtp_de_brevo
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_TIMEOUT_SECONDS=20
+```
+
+Puedes probar el correo sin iniciar sesion con:
+
+```text
+https://inventario-vms.onrender.com/debug-mail?token=TU_ENTRY_ACCESS_TOKEN&email=correo@dominio.com
+```
 
 ## 5.2 Tiempo de sesion
 
