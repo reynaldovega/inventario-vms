@@ -49,6 +49,8 @@ INVITES_STORE_PATH = DATA_DIR / "invites.json"
 APPLICATIONS_STORE_PATH = DATA_DIR / "applications_tto.json"
 AGENT_REPORT_TOKEN = os.getenv("AGENT_REPORT_TOKEN", "").strip()
 ENTRY_ACCESS_TOKEN = os.getenv("ENTRY_ACCESS_TOKEN", "").strip()
+SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
+SMTP_SECURITY = os.getenv("SMTP_SECURITY", "ssl").strip().lower()
 
 USERS = {
     "admin": {
@@ -150,6 +152,30 @@ def load_json_file(path: Path, default):
 def save_json_file(path: Path, payload) -> None:
     ensure_data_dir()
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def send_smtp_message(msg: MIMEMultipart) -> None:
+    remitente = os.getenv("EMAIL_USER", "").strip()
+    clave = os.getenv("EMAIL_PASS", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
+    default_port = "587" if SMTP_SECURITY in {"starttls", "tls"} else "465"
+    smtp_port = int(os.getenv("SMTP_PORT", default_port))
+
+    if not remitente or not clave:
+        raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
+
+    if SMTP_SECURITY in {"starttls", "tls"}:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=SMTP_TIMEOUT_SECONDS) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(remitente, clave)
+            server.send_message(msg)
+        return
+
+    with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=SMTP_TIMEOUT_SECONDS) as server:
+        server.login(remitente, clave)
+        server.send_message(msg)
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -262,11 +288,8 @@ def read_action_token(token: str, expected_kind: str) -> dict | None:
 
 def enviar_correo(destino: str, codigo: str, display_name: str, email_greeting: str = "") -> None:
     remitente = os.getenv("EMAIL_USER", "").strip()
-    clave = os.getenv("EMAIL_PASS", "").strip()
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
-    smtp_port = int(os.getenv("SMTP_PORT", "465"))
 
-    if not remitente or not clave:
+    if not remitente:
         raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
 
     saludo = clean_value(email_greeting) or clean_value(display_name) or "usuario"
@@ -332,18 +355,13 @@ def enviar_correo(destino: str, codigo: str, display_name: str, email_greeting: 
     msg["From"] = remitente
     msg["To"] = destino
 
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(remitente, clave)
-        server.send_message(msg)
+    send_smtp_message(msg)
 
 
 def enviar_correo_html(destino: str, asunto: str, texto: str, html: str) -> None:
     remitente = os.getenv("EMAIL_USER", "").strip()
-    clave = os.getenv("EMAIL_PASS", "").strip()
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
-    smtp_port = int(os.getenv("SMTP_PORT", "465"))
 
-    if not remitente or not clave:
+    if not remitente:
         raise RuntimeError("Faltan EMAIL_USER o EMAIL_PASS en el entorno")
 
     msg = MIMEMultipart("alternative")
@@ -353,9 +371,7 @@ def enviar_correo_html(destino: str, asunto: str, texto: str, html: str) -> None
     msg["From"] = remitente
     msg["To"] = destino
 
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(remitente, clave)
-        server.send_message(msg)
+    send_smtp_message(msg)
 
 
 def build_public_url(request: Request, token: str, mode: str) -> str:
@@ -1454,6 +1470,33 @@ def entry_access(token: str = Query(default="")):
     if not ENTRY_ACCESS_TOKEN or not hmac.compare_digest(ENTRY_ACCESS_TOKEN, token):
         raise HTTPException(status_code=404, detail="No encontrado")
     return {"ok": True}
+
+
+@app.get("/debug-mail")
+def debug_mail(
+    token: str = Query(default=""),
+    email: str = Query(default=""),
+):
+    if not ENTRY_ACCESS_TOKEN or not hmac.compare_digest(ENTRY_ACCESS_TOKEN, token):
+        raise HTTPException(status_code=404, detail="No encontrado")
+
+    destino = clean_value(email).lower() or os.getenv("EMAIL_USER", "").strip()
+    if not destino or "@" not in destino:
+        raise HTTPException(status_code=400, detail="Indica un correo valido en el parametro email")
+
+    try:
+        enviar_correo_html(
+            destino,
+            "Prueba SMTP | Inventario VMS",
+            "Prueba de correo Inventario VMS",
+            "Si recibiste este mensaje, el SMTP esta funcionando.",
+            "<p>Si recibiste este mensaje, el SMTP de Inventario VMS esta funcionando.</p>",
+        )
+    except Exception as exc:
+        print(f"[ERROR] Prueba SMTP fallida para {destino}: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"SMTP fallo: {type(exc).__name__}: {exc}")
+
+    return {"ok": True, "message": f"Correo de prueba enviado a {mask_email(destino)}"}
 
 
 @app.get("/access-link")
