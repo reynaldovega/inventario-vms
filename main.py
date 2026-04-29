@@ -191,7 +191,6 @@ def validate_password_policy(password: str, username: str = "", email: str = "",
         errors.append("No debe contener datos evidentes del usuario.")
     return errors
 
-
 def normalize_permissions(raw_permissions, role: str) -> list[str]:
     if isinstance(raw_permissions, str):
         permissions = [item.strip() for item in raw_permissions.split(",")]
@@ -203,7 +202,7 @@ def normalize_permissions(raw_permissions, role: str) -> list[str]:
     allowed = set().union(*[set(items) for items in ROLE_DEFAULT_PERMISSIONS.values()])
     clean_permissions = []
     for permission in permissions:
-        normalized = normalize_header_key(permission)
+        normalized = re.sub(r"[^a-z0-9]+", "", str(permission).strip().lower())
         mapped = {
             "dashboard": "dashboard_vms",
             "dashboardvms": "dashboard_vms",
