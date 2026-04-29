@@ -480,7 +480,10 @@ def load_persisted_users() -> dict:
 
 
 def persist_dynamic_users() -> None:
-    save_json_file(USERS_STORE_PATH, USERS)
+    try:
+        save_json_file(USERS_STORE_PATH, USERS)
+    except Exception as exc:
+        print(f"[WARN] No se pudo persistir usuarios en {USERS_STORE_PATH}: {exc}", flush=True)
 
 
 def get_env_user(username: str) -> dict | None:
@@ -1405,7 +1408,8 @@ async def login(request: Request):
             user.get("display_name", username),
             user.get("email_greeting", ""),
         )
-    except Exception:
+    except Exception as exc:
+        print(f"[ERROR] No se pudo enviar OTP a {email}: {exc}", flush=True)
         otp_store.pop(username, None)
         raise HTTPException(
             status_code=500,

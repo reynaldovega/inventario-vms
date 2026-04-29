@@ -871,20 +871,27 @@
         headers["Content-Type"] = "application/json";
       }
 
-      const response = await fetch(url, {
-        credentials: "same-origin",
-        ...options,
-        headers,
-      });
-      if (!response.ok) {
-        let message = `Error ${response.status}`;
-        try {
-          const payload = await response.json();
-          message = payload.detail || payload.mensaje || message;
-        } catch (_) {}
-        throw new Error(message);
+      try {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+          headers,
+        });
+        if (!response.ok) {
+          let message = `Error ${response.status}`;
+          try {
+            const payload = await response.json();
+            message = payload.detail || payload.mensaje || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+        return response.json();
+      } catch (error) {
+        if (error instanceof TypeError && error.message === "Failed to fetch") {
+          throw new Error("No se pudo conectar con el servidor. Revisa si Render termino de desplegar o si el backend esta reiniciando.");
+        }
+        throw error;
       }
-      return response.json();
     }
 
     function setText(id, value) {
