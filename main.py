@@ -52,6 +52,7 @@ ENTRY_ACCESS_TOKEN = os.getenv("ENTRY_ACCESS_TOKEN", "").strip()
 SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
 SMTP_SECURITY = os.getenv("SMTP_SECURITY", "ssl").strip().lower()
 SHOW_MAIL_ERROR_DETAILS = os.getenv("SHOW_MAIL_ERROR_DETAILS", "").strip().lower() in {"1", "true", "yes"}
+LOGIN_OTP_ENABLED = os.getenv("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
 
 USERS = {
     "admin": {
@@ -573,6 +574,30 @@ def create_session_token(username: str) -> str:
     payload_b64 = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("utf-8")
     signature = sign_data(payload_b64)
     return f"{payload_b64}.{signature}"
+
+
+def set_session_cookie(response: Response, username: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=create_session_token(username),
+        httponly=True,
+        samesite="lax",
+        secure=is_secure_cookie_enabled(),
+        path="/",
+        max_age=SESSION_TIMEOUT_SECONDS,
+    )
+
+
+def auth_user_payload(username: str, user: dict) -> dict:
+    return {
+        "username": username,
+        "role": user["role"],
+        "display_name": user["display_name"],
+        "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
+        "password_must_change": password_requires_change({"username": username, **user}),
+        "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
+        "permissions": user_permissions(user),
+    }
 
 
 def read_session_token(token: str | None) -> dict | None:
@@ -1387,7 +1412,7 @@ def serve_index():
 
 
 @app.post("/login")
-async def login(request: Request):
+async def login(request: Request, response: Response):
     body = await request.json()
     username = str(body.get("username", "")).strip().lower()
     password = str(body.get("password", ""))
@@ -1406,6 +1431,10 @@ async def login(request: Request):
 
     if not user or not verify_password(user["password"], password):
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
+
+    if not LOGIN_OTP_ENABLED:
+        set_session_cookie(response, username)
+        return auth_user_payload(username, user)
 
     email = clean_value(user.get("email", "")).lower()
     if not email or "@" not in email:
@@ -1454,15 +1483,7 @@ def logout(response: Response):
 @app.get("/me")
 def me(request: Request):
     user = get_current_user(request)
-    return {
-        "username": user["username"],
-        "role": user["role"],
-        "display_name": user["display_name"],
-        "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
-        "password_must_change": password_requires_change(user),
-        "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
-        "permissions": user_permissions(user),
-    }
+    return auth_user_payload(user["username"], user)
 
 
 @app.get("/password-policy")
@@ -1536,13 +1557,18 @@ async def create_invitation(request: Request):
     if existing_user:
         token = make_action_token("access", existing_username, ttl_seconds=7 * 24 * 60 * 60)
         link = build_public_url(request, token, "access")
-        send_link_email(
-            email,
-            "Acceso a Inventario VMS",
-            "Acceso a la plataforma",
-            "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
-            link,
-        )
+        mail_sent = True
+        try:
+            send_link_email(
+                email,
+                "Acceso a Inventario VMS",
+                "Acceso a la plataforma",
+                "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
+                link,
+            )
+        except Exception as exc:
+            mail_sent = False
+            print(f"[ERROR] No se pudo enviar enlace de acceso a {email}: {type(exc).__name__}: {exc}", flush=True)
         return {
             "ok": True,
             "existing": True,
@@ -1550,6 +1576,7 @@ async def create_invitation(request: Request):
             "email": email,
             "role": existing_user.get("role", ""),
             "link": link,
+            "mail_sent": mail_sent,
         }
 
     token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
@@ -1565,14 +1592,19 @@ async def create_invitation(request: Request):
     save_json_file(INVITES_STORE_PATH, invite_store)
 
     link = build_public_url(request, token, "invite")
-    send_link_email(
-        email,
-        "Invitacion de acceso | Inventario VMS",
-        "Invitacion de acceso",
-        "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
-        link,
-    )
-    return {"ok": True, "username": username, "email": email, "role": role, "link": link}
+    mail_sent = True
+    try:
+        send_link_email(
+            email,
+            "Invitacion de acceso | Inventario VMS",
+            "Invitacion de acceso",
+            "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
+            link,
+        )
+    except Exception as exc:
+        mail_sent = False
+        print(f"[ERROR] No se pudo enviar invitacion a {email}: {type(exc).__name__}: {exc}", flush=True)
+    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": mail_sent}
 
 
 @app.post("/accept-invite")
@@ -1709,27 +1741,10 @@ async def verify_otp(request: Request, response: Response):
         raise HTTPException(status_code=400, detail="Codigo incorrecto")
 
     otp_store.pop(username, None)
-    token = create_session_token(username)
-    response.set_cookie(
-        key=SESSION_COOKIE,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        secure=is_secure_cookie_enabled(),
-        path="/",
-        max_age=SESSION_TIMEOUT_SECONDS,
-    )
+    set_session_cookie(response, username)
 
     user = USERS[username]
-
-    return {
-        "username": username,
-        "role": user["role"],
-        "display_name": user["display_name"],
-        "password_must_change": password_requires_change({"username": username, **user}),
-        "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
-        "permissions": user_permissions(user),
-    }
+    return auth_user_payload(username, user)
 
 @app.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...)):

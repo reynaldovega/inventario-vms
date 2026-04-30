@@ -105,6 +105,41 @@
       padding-bottom: 14px;
     }
 
+    .password-field {
+      position: relative;
+      width: 100%;
+    }
+
+    .password-field input {
+      padding-right: 52px;
+    }
+
+    .password-toggle {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 38px;
+      height: 38px;
+      min-height: 38px;
+      padding: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--muted);
+      border-color: transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .password-toggle:hover {
+      background: rgba(30, 111, 92, 0.08);
+      color: var(--brand-dark);
+      transform: translateY(-50%);
+    }
+
     .auth-error {
       margin-top: 10px;
       color: var(--danger);
@@ -211,6 +246,8 @@
 
     input[type="file"],
     input[type="text"],
+    input[type="email"],
+    input[type="password"],
     select,
     button {
       border-radius: 14px;
@@ -222,6 +259,8 @@
 
     input[type="file"],
     input[type="text"],
+    input[type="email"],
+    input[type="password"],
     select {
       background: white;
       color: var(--text);
@@ -533,13 +572,19 @@
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
       <h2 id="authTitle">Acceso seguro</h2>
-      <p id="authDescription">Ingresa con tu usuario y contrasena para usar el inventario. Despues te enviaremos un codigo al correo configurado para completar el acceso.</p>
+      <p id="authDescription">Ingresa con tu usuario y contrasena para usar el inventario.</p>
       <div class="auth-form">
         <input type="text" id="loginUsername" placeholder="Usuario">
         <input type="text" id="loginOtp" class="hidden" placeholder="Codigo de verificacion" inputmode="numeric" maxlength="6">
-        <input type="password" id="loginPassword" placeholder="Contrasena">
-        <input type="password" id="newPasswordConfirm" class="hidden" placeholder="Repetir contrasena nueva">
-        <button id="authButton" onclick="login()">Enviar codigo</button>
+        <div class="password-field" id="loginPasswordField">
+          <input type="password" id="loginPassword" placeholder="Contrasena">
+          <button class="password-toggle" type="button" onclick="togglePasswordVisibility('loginPassword', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
+        </div>
+        <div class="password-field hidden" id="newPasswordConfirmField">
+          <input type="password" id="newPasswordConfirm" placeholder="Repetir contrasena nueva">
+          <button class="password-toggle" type="button" onclick="togglePasswordVisibility('newPasswordConfirm', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
+        </div>
+        <button id="authButton" onclick="login()">Ingresar</button>
         <button class="secondary" id="forgotButton" onclick="solicitarReset()" type="button">Restablecer contrasena</button>
       </div>
       <div class="auth-status" id="authStatus"></div>
@@ -817,9 +862,18 @@
         <div class="panel">
           <h2>Nueva contrasena</h2>
           <div class="inline-form">
-            <input type="password" id="currentPassword" placeholder="Contrasena actual">
-            <input type="password" id="newPassword" placeholder="Nueva contrasena">
-            <input type="password" id="repeatPassword" placeholder="Repetir nueva contrasena">
+            <div class="password-field">
+              <input type="password" id="currentPassword" placeholder="Contrasena actual">
+              <button class="password-toggle" type="button" onclick="togglePasswordVisibility('currentPassword', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
+            </div>
+            <div class="password-field">
+              <input type="password" id="newPassword" placeholder="Nueva contrasena">
+              <button class="password-toggle" type="button" onclick="togglePasswordVisibility('newPassword', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
+            </div>
+            <div class="password-field">
+              <input type="password" id="repeatPassword" placeholder="Repetir nueva contrasena">
+              <button class="password-toggle" type="button" onclick="togglePasswordVisibility('repeatPassword', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
+            </div>
             <button onclick="cambiarPassword()">Actualizar</button>
           </div>
           <div class="helper">Politica: minimo 10 caracteres, una mayuscula, una minuscula, un numero y un simbolo.</div>
@@ -957,6 +1011,22 @@
       }, sessionIdleTimeoutMs);
     }
 
+    function setAuthPasswordVisible(inputId, visible) {
+      const input = document.getElementById(inputId);
+      const field = document.getElementById(`${inputId}Field`);
+      if (input) input.classList.toggle("hidden", !visible);
+      if (field) field.classList.toggle("hidden", !visible);
+    }
+
+    function togglePasswordVisibility(inputId, button) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const showing = input.type === "text";
+      input.type = showing ? "password" : "text";
+      button.setAttribute("aria-label", showing ? "Mostrar contrasena" : "Ocultar contrasena");
+      button.title = showing ? "Mostrar contrasena" : "Ocultar contrasena";
+    }
+
     function registerActivityListeners() {
       ["click", "keydown", "mousemove", "scroll", "touchstart"].forEach((eventName) => {
         document.addEventListener(eventName, () => {
@@ -977,13 +1047,13 @@
       document.getElementById("authStatus").textContent = "";
       document.getElementById("authTitle").textContent = "Acceso seguro";
       document.getElementById("authDescription").textContent =
-        "Ingresa con tu usuario y contrasena para usar el inventario. Despues te enviaremos un codigo al correo configurado para completar el acceso.";
+        "Ingresa con tu usuario y contrasena para usar el inventario.";
       document.getElementById("loginUsername").classList.remove("hidden");
-      document.getElementById("loginPassword").classList.remove("hidden");
+      setAuthPasswordVisible("loginPassword", true);
       document.getElementById("loginOtp").classList.add("hidden");
-      document.getElementById("newPasswordConfirm").classList.add("hidden");
+      setAuthPasswordVisible("newPasswordConfirm", false);
       document.getElementById("forgotButton").classList.remove("hidden");
-      document.getElementById("authButton").textContent = "Enviar codigo";
+      document.getElementById("authButton").textContent = "Ingresar";
     }
 
     function setPasswordTokenStep(kind) {
@@ -996,8 +1066,8 @@
         : "Define una nueva contrasena para tu usuario.";
       document.getElementById("loginUsername").classList.add("hidden");
       document.getElementById("loginOtp").classList.add("hidden");
-      document.getElementById("loginPassword").classList.remove("hidden");
-      document.getElementById("newPasswordConfirm").classList.remove("hidden");
+      setAuthPasswordVisible("loginPassword", true);
+      setAuthPasswordVisible("newPasswordConfirm", true);
       document.getElementById("forgotButton").classList.add("hidden");
       document.getElementById("authButton").textContent = kind === "invite" ? "Crear cuenta" : "Actualizar contrasena";
     }
@@ -1010,7 +1080,7 @@
       document.getElementById("authDescription").textContent =
         "Escribe el codigo de 6 digitos para terminar el ingreso.";
       document.getElementById("authStatus").textContent = `Enviamos un codigo a ${emailHint}.`;
-      document.getElementById("loginPassword").classList.add("hidden");
+      setAuthPasswordVisible("loginPassword", false);
       document.getElementById("loginOtp").classList.remove("hidden");
       document.getElementById("loginOtp").focus();
       document.getElementById("authButton").textContent = "Validar codigo";
@@ -1226,8 +1296,20 @@
             method: "POST",
             body: JSON.stringify({ username, password }),
           });
-          setOtpStep(payload.username, payload.email_hint || "tu correo");
-          document.getElementById("loginPassword").value = "";
+          if (payload.step === "otp") {
+            setOtpStep(payload.username, payload.email_hint || "tu correo");
+            document.getElementById("loginPassword").value = "";
+            return;
+          }
+          currentUser = payload;
+          sessionIdleTimeoutMs = (currentUser.session_timeout_seconds || 7200) * 1000;
+          document.getElementById("authOverlay").classList.add("hidden");
+          resetAuthForm();
+          applyRolePermissions();
+          if (currentUser.password_must_change) {
+            return;
+          }
+          await cargarInicial();
           return;
         }
 
@@ -1575,9 +1657,13 @@ document.addEventListener("DOMContentLoaded", () => {
             role: document.getElementById("inviteRole").value,
           }),
         });
-        status.textContent = payload.existing
-          ? `Enlace de acceso enviado a ${payload.email}.`
-          : `Invitacion enviada a ${payload.email}.`;
+        if (payload.mail_sent) {
+          status.textContent = payload.existing
+            ? `Enlace de acceso enviado a ${payload.email}.`
+            : `Invitacion enviada a ${payload.email}.`;
+        } else {
+          status.textContent = `Correo no disponible. Copia y envia este enlace a ${payload.email}: ${payload.link}`;
+        }
       } catch (error) {
         status.textContent = error.message;
       }

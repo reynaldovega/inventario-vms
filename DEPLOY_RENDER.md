@@ -79,6 +79,7 @@ Opcionalmente tambien puedes definir:
 - `SMTP_HOST`
 - `SMTP_PORT`
 - `SMTP_SECURITY=ssl`
+- `LOGIN_OTP_ENABLED=false`
 - `COOKIE_SECURE=true`
 - `SESSION_TIMEOUT_SECONDS=7200`
 - `PASSWORD_MAX_AGE_SECONDS=7776000`
@@ -205,13 +206,15 @@ Ejemplo: usuario con solo Aplicaciones TTO:
 
 ## 5.1 Doble autenticacion por correo
 
-El login ahora funciona en 2 pasos:
+El login puede funcionar en 2 pasos si activas `LOGIN_OTP_ENABLED=true`:
 
 1. el usuario ingresa `usuario + contrasena`
 2. la app envia un codigo de 6 digitos al correo configurado
 3. el usuario escribe ese codigo y recien alli se crea la sesion
 
 Si un usuario no tiene `email`, no podra terminar el ingreso.
+
+Para usar licencias gratuitas en Render, deja `LOGIN_OTP_ENABLED=false`. Asi el acceso queda protegido por entrada privada/invitacion, usuario, contrasena, cookie segura y vencimiento de sesion, sin depender de SMTP.
 
 ## 5.1.1 Recomendacion SMTP
 
