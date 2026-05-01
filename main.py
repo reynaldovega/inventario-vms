@@ -34,6 +34,7 @@ DEFAULT_EXCEL = next(BASE_DIR.glob("*.xlsx"), None)
 SESSION_COOKIE = "inventario_vms_session"
 SESSION_TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT_SECONDS", str(2 * 60 * 60)))
 PASSWORD_MAX_AGE_SECONDS = int(os.getenv("PASSWORD_MAX_AGE_SECONDS", str(90 * 24 * 60 * 60)))
+PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 
@@ -56,6 +57,8 @@ SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
 SMTP_SECURITY = os.getenv("SMTP_SECURITY", "ssl").strip().lower()
 SHOW_MAIL_ERROR_DETAILS = os.getenv("SHOW_MAIL_ERROR_DETAILS", "").strip().lower() in {"1", "true", "yes"}
 LOGIN_OTP_ENABLED = os.getenv("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900"))
 
 USERS = {
     "admin": {
@@ -98,6 +101,7 @@ ROLE_DEFAULT_PERMISSIONS = {
 otp_store = {}  # {username: (codigo, expira)}
 invite_store = {}
 password_reset_store = {}
+login_attempts = {}
 EXCLUDED_ASSIGNMENT_TAGS = [
     "no existe",
     "dotacion",
@@ -157,6 +161,61 @@ def load_json_file(path: Path, default):
 def save_json_file(path: Path, payload) -> None:
     ensure_data_dir()
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else ""
+
+
+def audit_event(event: str, request: Request | None = None, username: str = "", details: dict | None = None) -> None:
+    try:
+        ensure_data_dir()
+        payload = {
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "event": event,
+            "username": username,
+            "ip": get_client_ip(request) if request else "",
+            "details": details or {},
+        }
+        with (DATA_DIR / "security_audit.log").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+    except Exception as exc:
+        print(f"[WARN] No se pudo escribir auditoria: {exc}", flush=True)
+
+
+def login_attempt_key(username: str, request: Request) -> str:
+    return f"{username}:{get_client_ip(request)}"
+
+
+def assert_login_not_locked(username: str, request: Request) -> None:
+    key = login_attempt_key(username, request)
+    item = login_attempts.get(key)
+    if not item:
+        return
+    locked_until = int(item.get("locked_until", 0) or 0)
+    if locked_until and now_ts() < locked_until:
+        remaining = max(1, locked_until - now_ts())
+        audit_event("login_blocked", request, username, {"remaining_seconds": remaining})
+        raise HTTPException(status_code=429, detail=f"Demasiados intentos fallidos. Intenta nuevamente en {int(remaining / 60) + 1} minutos.")
+    if locked_until and now_ts() >= locked_until:
+        login_attempts.pop(key, None)
+
+
+def register_login_failure(username: str, request: Request) -> None:
+    key = login_attempt_key(username, request)
+    item = login_attempts.get(key, {"count": 0, "locked_until": 0})
+    item["count"] = int(item.get("count", 0) or 0) + 1
+    if item["count"] >= LOGIN_MAX_ATTEMPTS:
+        item["locked_until"] = now_ts() + LOGIN_LOCKOUT_SECONDS
+    login_attempts[key] = item
+    audit_event("login_failed", request, username, {"attempts": item["count"], "locked": bool(item.get("locked_until"))})
+
+
+def clear_login_failures(username: str, request: Request) -> None:
+    login_attempts.pop(login_attempt_key(username, request), None)
 
 
 def send_smtp_message(msg: MIMEMultipart) -> None:
@@ -444,7 +503,8 @@ def load_users_from_env() -> dict:
         email = str(item.get("email", "")).strip().lower()
         email_greeting = str(item.get("email_greeting", "")).strip()
         password_changed_at = int(item.get("password_changed_at", 0) or 0)
-        force_password_change = bool(item.get("force_password_change", role in {"tecnologia", "invitado"}))
+        password_policy_version = int(item.get("password_policy_version", 0) or 0)
+        force_password_change = bool(item.get("force_password_change", True))
         permissions = normalize_permissions(item.get("permissions"), role)
 
         if role == "ti":
@@ -461,6 +521,7 @@ def load_users_from_env() -> dict:
             "email_greeting": email_greeting,
             "password_changed_at": password_changed_at,
             "force_password_change": force_password_change,
+            "password_policy_version": password_policy_version,
             "permissions": permissions,
         }
 
@@ -495,6 +556,7 @@ def load_persisted_users() -> dict:
             "email_greeting": str(item.get("email_greeting", "")).strip(),
             "password_changed_at": int(item.get("password_changed_at", 0) or 0),
             "force_password_change": bool(item.get("force_password_change", False)),
+            "password_policy_version": int(item.get("password_policy_version", 0) or 0),
             "permissions": normalize_permissions(item.get("permissions"), role),
         }
     return loaded
@@ -612,6 +674,7 @@ def auth_user_payload(username: str, user: dict) -> dict:
         "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
         "password_must_change": password_requires_change({"username": username, **user}),
         "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
+        "password_policy_version": PASSWORD_POLICY_VERSION,
         "permissions": user_permissions(user),
     }
 
@@ -658,8 +721,8 @@ def require_roles(request: Request, allowed_roles: set[str]) -> dict:
 
 
 def password_requires_change(user: dict) -> bool:
-    if user.get("role") == "admin":
-        return bool(user.get("force_password_change", False))
+    if int(user.get("password_policy_version", 0) or 0) < PASSWORD_POLICY_VERSION:
+        return True
     if bool(user.get("force_password_change", False)):
         return True
     changed_at = int(user.get("password_changed_at", 0) or 0)
@@ -1583,21 +1646,25 @@ async def login(request: Request, response: Response):
     body = await request.json()
     username = str(body.get("username", "")).strip().lower()
     password = str(body.get("password", ""))
+    assert_login_not_locked(username, request)
 
     user = USERS.get(username)
     env_user = get_env_user(username)
     if (not user or not verify_password(user["password"], password)) and env_user and verify_password(env_user["password"], password):
         merged_user = user.copy() if user else {}
         merged_user.update(env_user)
-        if merged_user.get("role") == "admin":
-            merged_user["force_password_change"] = False
-            merged_user["password_changed_at"] = merged_user.get("password_changed_at", now_ts()) or now_ts()
+        merged_user["force_password_change"] = True
+        merged_user["password_policy_version"] = int(merged_user.get("password_policy_version", 0) or 0)
         USERS[username] = merged_user
         persist_dynamic_users()
         user = merged_user
 
     if not user or not verify_password(user["password"], password):
+        register_login_failure(username, request)
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
+
+    clear_login_failures(username, request)
+    audit_event("login_success", request, username, {"password_must_change": password_requires_change({"username": username, **user})})
 
     if not LOGIN_OTP_ENABLED:
         set_session_cookie(response, username)
@@ -1626,7 +1693,7 @@ async def login(request: Request, response: Response):
         print(f"[ERROR] No se pudo enviar OTP a {email}: {error_text}", flush=True)
         otp_store.pop(username, None)
         detail = "No se pudo enviar el codigo al correo configurado"
-        if SHOW_MAIL_ERROR_DETAILS or user.get("role") == "admin":
+        if SHOW_MAIL_ERROR_DETAILS:
             detail = f"{detail}. SMTP: {error_text}"
         raise HTTPException(
             status_code=500,
@@ -1722,8 +1789,9 @@ async def create_invitation(request: Request):
         existing_user = USERS[username]
 
     if existing_user:
-        token = make_action_token("access", existing_username, ttl_seconds=7 * 24 * 60 * 60)
+        token = make_action_token("access", existing_username, ttl_seconds=48 * 60 * 60)
         link = build_public_url(request, token, "access")
+        audit_event("access_link_created", request, existing_username, {"email": email, "expires_hours": 48})
         mail_sent = True
         try:
             send_link_email(
@@ -1747,6 +1815,7 @@ async def create_invitation(request: Request):
         }
 
     token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
+    audit_event("invite_created", request, username, {"email": email, "role": role, "expires_hours": 48})
     invite_store[token] = {
         "username": username,
         "email": email,
@@ -1801,12 +1870,14 @@ async def accept_invite(request: Request):
         "email_greeting": display_name,
         "password_changed_at": now_ts(),
         "force_password_change": False,
+        "password_policy_version": PASSWORD_POLICY_VERSION,
         "permissions": ROLE_DEFAULT_PERMISSIONS.get(invitation["role"], ["inventario"]),
     }
     invitation["used"] = True
     invite_store[token] = invitation
     persist_dynamic_users()
     save_json_file(INVITES_STORE_PATH, invite_store)
+    audit_event("invite_accepted", request, username, {"email": email, "role": invitation["role"]})
     return {"ok": True, "username": username, "message": "Cuenta creada. Ya puede iniciar sesion."}
 
 
@@ -1854,10 +1925,12 @@ async def confirm_password_reset(request: Request):
     user["password"] = hash_password(password)
     user["password_changed_at"] = now_ts()
     user["force_password_change"] = False
+    user["password_policy_version"] = PASSWORD_POLICY_VERSION
     USERS[username] = user
     reset_item["used"] = True
     password_reset_store[token] = reset_item
     persist_dynamic_users()
+    audit_event("password_reset_confirmed", request, username)
     return {"ok": True, "message": "Contrasena actualizada."}
 
 
@@ -1884,8 +1957,10 @@ async def change_password(request: Request):
     stored_user["password"] = hash_password(new_password)
     stored_user["password_changed_at"] = now_ts()
     stored_user["force_password_change"] = False
+    stored_user["password_policy_version"] = PASSWORD_POLICY_VERSION
     USERS[user["username"]] = stored_user
     persist_dynamic_users()
+    audit_event("password_changed", request, user["username"])
     return {"ok": True, "message": "Contrasena actualizada correctamente."}
 
 

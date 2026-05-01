@@ -83,6 +83,9 @@ Opcionalmente tambien puedes definir:
 - `COOKIE_SECURE=true`
 - `SESSION_TIMEOUT_SECONDS=7200`
 - `PASSWORD_MAX_AGE_SECONDS=7776000`
+- `PASSWORD_POLICY_VERSION=2`
+- `LOGIN_MAX_ATTEMPTS=5`
+- `LOGIN_LOCKOUT_SECONDS=900`
 - `DATA_DIR=/var/data`
 - `PUBLIC_BASE_URL=https://inventario-vms.onrender.com`
 - `AGENT_REPORT_TOKEN=una-clave-larga-privada`
@@ -94,8 +97,8 @@ La app permite que el administrador coloque una contrasena inicial en `APP_USERS
 Para usuarios con rol `tecnologia` o `invitado`, esa contrasena inicial es temporal:
 
 1. El usuario entra con la contrasena inicial.
-2. Recibe el codigo de verificacion por correo.
-3. La web le exige cambiar la contrasena antes de usar la plataforma.
+2. La web le exige cambiar la contrasena antes de usar la plataforma.
+3. La nueva contrasena debe cumplir la politica de seguridad.
 4. La nueva contrasena queda guardada en `DATA_DIR/users.json`.
 5. A los 90 dias vuelve a pedir cambio de contrasena.
 
@@ -125,7 +128,7 @@ https://inventario-vms.onrender.com/?entry=TU_ENTRY_ACCESS_TOKEN
 
 Ese token debe ser igual al valor de `ENTRY_ACCESS_TOKEN` en Render.
 Luego de abrir ese enlace una vez, ese navegador queda autorizado para ver el login.
-Los usuarios invitados tambien quedan autorizados despues de aceptar su invitacion.
+Los usuarios invitados tambien quedan autorizados despues de aceptar su invitacion. Las invitaciones vencen en 48 horas.
 
 ## 4. Como agregar un usuario nuevo
 
@@ -215,6 +218,10 @@ El login puede funcionar en 2 pasos si activas `LOGIN_OTP_ENABLED=true`:
 Si un usuario no tiene `email`, no podra terminar el ingreso.
 
 Para usar licencias gratuitas en Render, deja `LOGIN_OTP_ENABLED=false`. Asi el acceso queda protegido por entrada privada/invitacion, usuario, contrasena, cookie segura y vencimiento de sesion, sin depender de SMTP.
+
+### Forzar cambio global de contrasenas
+
+La app usa `PASSWORD_POLICY_VERSION`. Todo usuario con una version anterior debe cambiar su contrasena al iniciar sesion. Para forzar otro cambio global en el futuro, incrementa el valor, por ejemplo de `2` a `3`.
 
 ## 5.1.1 Recomendacion SMTP
 
