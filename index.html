@@ -115,12 +115,14 @@
       padding-right: 54px;
     }
 
-    .password-toggle {
+    .password-field .password-toggle {
       position: absolute;
       right: 8px;
       top: 50%;
       transform: translateY(-50%);
       width: 38px;
+      min-width: 38px;
+      max-width: 38px;
       height: 38px;
       min-height: 38px;
       padding: 0;
@@ -135,7 +137,7 @@
       line-height: 1;
     }
 
-    .password-toggle:hover {
+    .password-field .password-toggle:hover {
       background: rgba(30, 111, 92, 0.08);
       color: var(--brand-dark);
       transform: translateY(-50%);
