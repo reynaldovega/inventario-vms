@@ -47,6 +47,8 @@ DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 USERS_STORE_PATH = DATA_DIR / "users.json"
 INVITES_STORE_PATH = DATA_DIR / "invites.json"
 APPLICATIONS_STORE_PATH = DATA_DIR / "applications_tto.json"
+INFRA_STORE_PATH = DATA_DIR / "infra_vms.xlsx"
+INFRA_META_PATH = DATA_DIR / "infra_vms_meta.json"
 AGENT_REPORT_TOKEN = os.getenv("AGENT_REPORT_TOKEN", "").strip()
 ENTRY_ACCESS_TOKEN = os.getenv("ENTRY_ACCESS_TOKEN", "").strip()
 SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
@@ -770,50 +772,154 @@ def load_infra_dataframe_from_excel(file_source) -> pd.DataFrame:
     processed["hostname_infra"] = get_series_by_header_alias(raw, ["HOSTNAME INFRA", "Hostname Infra"]).map(clean_value)
     processed["sistema_operativo"] = get_series_by_header_alias(raw, ["Sistema Operativo", "SO"]).map(clean_value)
     processed["fecha_entrega"] = format_date(get_series_by_header_alias(raw, ["FECHA ENTREGA VMS", "Fecha Entrega"]))
+    processed["so_version"] = processed["sistema_operativo"].map(normalize_os_version)
     processed["ip_norm"] = processed["ip"].map(normalize_text)
     return processed[processed["ip_norm"] != ""].fillna("")
 
 
-def build_vms_dashboard_data() -> dict:
+def normalize_os_version(value: object) -> str:
+    normalized = normalize_text(value)
+    if "11" in normalized:
+        return "WINDOWS 11"
+    if "10" in normalized:
+        return "WINDOWS 10"
+    if "windows" in normalized:
+        return clean_value(value).upper()
+    return ""
+
+
+def save_infra_upload(file_name: str, content: bytes) -> None:
+    ensure_data_dir()
+    INFRA_STORE_PATH.write_bytes(content)
+    save_json_file(INFRA_META_PATH, {"archivo": file_name, "updated_at": now_ts()})
+
+
+def ensure_infra_loaded() -> pd.DataFrame:
+    global infra_df_global, infra_file_name
+    if not infra_df_global.empty:
+        return infra_df_global
+    if INFRA_STORE_PATH.exists():
+        infra_df_global = load_infra_dataframe_from_excel(INFRA_STORE_PATH)
+        meta = load_json_file(INFRA_META_PATH, {})
+        infra_file_name = clean_value(meta.get("archivo", "")) or INFRA_STORE_PATH.name
+    return infra_df_global
+
+
+def dashboard_filter_options(merged: pd.DataFrame) -> dict:
+    def unique_values(field: str, limit: int = 500) -> list[str]:
+        if field not in merged:
+            return []
+        values = sorted({clean_value(value) for value in merged[field].fillna("").astype(str) if clean_value(value)})
+        return values[:limit]
+
+    return {
+        "areas": unique_values("area"),
+        "centros_costo": unique_values("centro_costo"),
+        "sistemas_operativos": unique_values("so_version"),
+        "estados": ["ASIGNADA", "LIBRE"],
+    }
+
+
+def filter_dashboard_rows(
+    merged: pd.DataFrame,
+    q: str = "",
+    area: str = "",
+    centro_costo: str = "",
+    dni: str = "",
+    sistema_operativo: str = "",
+    estado: str = "",
+) -> pd.DataFrame:
+    result = merged.copy()
+
+    filters = {
+        "area": area,
+        "centro_costo": centro_costo,
+        "dni": dni,
+        "so_version": sistema_operativo,
+        "estado_cruce": estado,
+    }
+    for field, value in filters.items():
+        normalized = normalize_text(value)
+        if normalized and normalized != "todos" and field in result:
+            result = result[result[field].map(normalize_text) == normalized]
+
+    normalized_query = normalize_text(q)
+    if normalized_query:
+        blob = result.fillna("").astype(str).apply(
+            lambda row: " ".join(normalize_text(value) for value in row),
+            axis=1,
+        )
+        mask = pd.Series(True, index=result.index)
+        for term in [term for term in normalized_query.split() if term]:
+            mask &= blob.str.contains(term, na=False)
+        result = result[mask]
+
+    return result
+
+
+def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     inventory = ensure_data_loaded().copy()
-    infra = infra_df_global.copy()
+    infra = ensure_infra_loaded().copy()
     if infra.empty:
-        return {
-            "archivo": infra_file_name,
-            "total_infra": 0,
-            "total_asignadas": 0,
-            "total_libres": 0,
-            "por_area": [],
-            "por_centro_costo": [],
-            "por_so": [],
-            "asignadas": [],
-            "libres": [],
-        }
+        return pd.DataFrame(), infra_file_name, 0
 
     assigned = inventory[has_valid_ip(inventory["ip"]) & has_valid_dni(inventory["dni"])].copy()
     assigned["ip_norm"] = assigned["ip"].map(normalize_text)
     assigned = assigned.drop_duplicates(subset=["ip_norm"], keep="first")
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "hostname", "ticket"]],
+        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "hostname", "ticket", "so"]],
         on="ip_norm",
         how="left",
     ).fillna("")
     merged["estado_cruce"] = merged["dni"].apply(lambda value: "ASIGNADA" if clean_value(value) else "LIBRE")
+    merged["so_inventario"] = merged.get("so", "")
+    merged["so_version"] = merged["so_version"].where(merged["so_version"] != "", merged["so_inventario"].map(normalize_os_version))
+    merged["sistema_operativo"] = merged["sistema_operativo"].where(merged["sistema_operativo"] != "", merged["so_inventario"])
+    return merged.fillna(""), infra_file_name, int(len(infra))
 
-    assigned_rows = merged[merged["estado_cruce"] == "ASIGNADA"].copy()
-    free_rows = merged[merged["estado_cruce"] == "LIBRE"].copy()
+
+def build_vms_dashboard_data(
+    q: str = "",
+    area: str = "",
+    centro_costo: str = "",
+    dni: str = "",
+    sistema_operativo: str = "",
+    estado: str = "",
+) -> dict:
+    merged, archivo, total_infra = build_vms_dashboard_rows()
+    if merged.empty:
+        return {
+            "archivo": archivo,
+            "total_infra": 0,
+            "total_asignadas": 0,
+            "total_libres": 0,
+            "total_filtrado": 0,
+            "por_area": [],
+            "por_centro_costo": [],
+            "por_so": [],
+            "asignadas": [],
+            "libres": [],
+            "filter_options": {"areas": [], "centros_costo": [], "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
+        }
+
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, dni, sistema_operativo, estado)
+
+    assigned_rows = filtered[filtered["estado_cruce"] == "ASIGNADA"].copy()
+    free_rows = filtered[filtered["estado_cruce"] == "LIBRE"].copy()
 
     return {
-        "archivo": infra_file_name,
-        "total_infra": int(len(infra)),
+        "archivo": archivo,
+        "total_infra": total_infra,
         "total_asignadas": int(len(assigned_rows)),
         "total_libres": int(len(free_rows)),
+        "total_filtrado": int(len(filtered)),
         "por_area": summarize_group(assigned_rows.rename(columns={"area": "area"}), "area", limit=12),
         "por_centro_costo": summarize_group(assigned_rows.rename(columns={"centro_costo": "centro_costo"}), "centro_costo", limit=12),
-        "por_so": summarize_group(merged.rename(columns={"sistema_operativo": "sistema_operativo"}), "sistema_operativo", limit=8),
+        "por_so": summarize_group(filtered.rename(columns={"so_version": "so_version"}), "so_version", limit=8),
         "asignadas": assigned_rows.head(500).to_dict(orient="records"),
         "libres": free_rows.head(500).to_dict(orient="records"),
+        "filter_options": dashboard_filter_options(merged),
     }
 
 
@@ -1763,8 +1869,10 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
     require_permission(request, "dashboard_vms")
     global infra_df_global, infra_file_name
-    infra_df_global = load_infra_dataframe_from_excel(file.file)
+    content = await file.read()
+    infra_df_global = load_infra_dataframe_from_excel(io.BytesIO(content))
     infra_file_name = file.filename or "infra_vms.xlsx"
+    save_infra_upload(infra_file_name, content)
     return {
         "mensaje": "Base de infraestructura cargada correctamente",
         "registros": int(len(infra_df_global)),
@@ -1773,9 +1881,63 @@ async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
 
 
 @app.get("/dashboard-vms")
-def dashboard_vms(request: Request):
+def dashboard_vms(
+    request: Request,
+    q: str = Query(default=""),
+    area: str = Query(default=""),
+    centro_costo: str = Query(default=""),
+    dni: str = Query(default=""),
+    sistema_operativo: str = Query(default=""),
+    estado: str = Query(default=""),
+):
     require_permission(request, "dashboard_vms")
-    return build_vms_dashboard_data()
+    return build_vms_dashboard_data(q, area, centro_costo, dni, sistema_operativo, estado)
+
+
+@app.get("/export-dashboard-vms")
+def export_dashboard_vms(
+    request: Request,
+    q: str = Query(default=""),
+    area: str = Query(default=""),
+    centro_costo: str = Query(default=""),
+    dni: str = Query(default=""),
+    sistema_operativo: str = Query(default=""),
+    estado: str = Query(default=""),
+):
+    require_permission(request, "exportar")
+    merged, _, _ = build_vms_dashboard_rows()
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, dni, sistema_operativo, estado)
+    columns = [
+        "estado_cruce",
+        "ip",
+        "dni",
+        "nombre_completo",
+        "area",
+        "centro_costo",
+        "hostname_infra",
+        "hostname",
+        "ticket",
+        "sistema_operativo",
+        "so_version",
+        "fecha_entrega",
+    ]
+    export_df = filtered[[column for column in columns if column in filtered.columns]].copy()
+    if "estado_cruce" not in export_df.columns:
+        export_df["estado_cruce"] = ""
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name="dashboard_filtrado")
+        export_df[export_df["estado_cruce"] == "ASIGNADA"].to_excel(writer, index=False, sheet_name="asignadas")
+        export_df[export_df["estado_cruce"] == "LIBRE"].to_excel(writer, index=False, sheet_name="libres")
+    output.seek(0)
+
+    headers = {"Content-Disposition": 'attachment; filename="dashboard_vms_filtrado.xlsx"'}
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @app.post("/applications/report")

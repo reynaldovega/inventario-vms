@@ -111,12 +111,13 @@
     }
 
     .password-field input {
-      padding-right: 52px;
+      padding-left: 52px;
+      padding-right: 14px;
     }
 
     .password-toggle {
       position: absolute;
-      right: 8px;
+      left: 8px;
       top: 50%;
       transform: translateY(-50%);
       width: 38px;
@@ -470,6 +471,11 @@
       margin-top: 14px;
     }
 
+    .dashboard-filters {
+      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      align-items: end;
+    }
+
     .inline-form input,
     .inline-form select,
     .inline-form button {
@@ -816,13 +822,47 @@
               <div class="card"><span>Asignadas</span><strong id="infraAsignadas">0</strong></div>
               <div class="card"><span>Libres</span><strong id="infraLibres">0</strong></div>
             </div>
+            <div class="file-meta">Filtrado actual: <strong id="infraFiltrado">0</strong></div>
           </div>
+        </div>
+      </section>
+      <section class="panel" style="margin-top:22px;">
+        <div class="section-head">
+          <div>
+            <h3>Analisis filtrado</h3>
+            <p>Filtra el cruce por campana, subservicio, DNI, sistema operativo o texto libre.</p>
+          </div>
+          <button class="secondary hidden admin-export" id="exportDashboardButton" onclick="descargarDashboardVms()" type="button">Exportar filtrado</button>
+        </div>
+        <div class="inline-form dashboard-filters">
+          <input type="text" id="dashQuery" placeholder="Buscar IP, hostname, ticket">
+          <select id="dashAreaFilter"><option value="">Campana</option></select>
+          <select id="dashCentroFilter"><option value="">Subservicio</option></select>
+          <input type="text" id="dashDniFilter" placeholder="DNI">
+          <select id="dashSoFilter"><option value="">Sistema operativo</option></select>
+          <select id="dashEstadoFilter">
+            <option value="">Estado</option>
+            <option value="ASIGNADA">Asignada</option>
+            <option value="LIBRE">Libre</option>
+          </select>
+          <button onclick="cargarDashboardVms()" type="button">Filtrar</button>
+          <button class="secondary" onclick="limpiarDashboardVms()" type="button">Limpiar</button>
         </div>
       </section>
       <section class="grid">
         <div class="panel">
           <h3>Asignadas por area</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashAreas"></table></div>
+        </div>
+        <div class="panel">
+          <h3>Asignadas por subservicio</h3>
+          <div class="table-wrap"><table class="mini-table" id="tablaDashCentros"></table></div>
+        </div>
+      </section>
+      <section class="grid">
+        <div class="panel">
+          <h3>Sistemas operativos</h3>
+          <div class="table-wrap"><table class="mini-table" id="tablaDashSo"></table></div>
         </div>
         <div class="panel">
           <h3>Libres</h3>
@@ -1545,11 +1585,12 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay reportes de aplicativos para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["Alerta", "DNI", "Nombre", "Hostname", "Procesador", "RAM", "Disco", "Windows", "Licencia", "Internet", "Carbon", "AnyConnect", "RDP destino", "Reporte"];
+      const headers = ["Alerta", "Accion", "DNI", "Nombre", "Hostname", "Procesador", "RAM", "Disco", "Windows", "Licencia", "Internet", "Carbon", "AnyConnect", "RDP destino", "Reporte"];
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
       const rows = data.map(item => `
         <tr class="${item.estado_alerta === "ALERTA" ? "danger-row" : ""}">
           <td>${item.estado_alerta || "-"}</td>
+          <td>${item.last_action || "inventario"}</td>
           <td>${item.dni || "-"}</td>
           <td>${item.nombre_completo || "-"}</td>
           <td>${item.hostname || "-"}</td>
@@ -1580,13 +1621,43 @@ document.addEventListener("DOMContentLoaded", () => {
       cargarAplicaciones();
     }
 
+    function dashboardFilterParams() {
+      return new URLSearchParams({
+        q: document.getElementById("dashQuery").value.trim(),
+        area: document.getElementById("dashAreaFilter").value,
+        centro_costo: document.getElementById("dashCentroFilter").value,
+        dni: document.getElementById("dashDniFilter").value.trim(),
+        sistema_operativo: document.getElementById("dashSoFilter").value,
+        estado: document.getElementById("dashEstadoFilter").value,
+      });
+    }
+
+    function fillSelectOptions(id, label, values) {
+      const select = document.getElementById(id);
+      const current = select.value;
+      select.innerHTML = `<option value="">${label}</option>` + (values || [])
+        .map(value => `<option value="${value}">${value}</option>`)
+        .join("");
+      if ([...select.options].some(option => option.value === current)) {
+        select.value = current;
+      }
+    }
+
+    function updateDashboardFilterOptions(options) {
+      fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
+      fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
+      fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
+    }
+
     function renderDashboardVms(data) {
       setText("infraTotal", data.total_infra || 0);
       setText("infraAsignadas", data.total_asignadas || 0);
       setText("infraLibres", data.total_libres || 0);
+      setText("infraFiltrado", data.total_filtrado || 0);
       document.getElementById("infraFileMeta").textContent = data.archivo
         ? `Base infraestructura: ${data.archivo}`
         : "Sin base de infraestructura cargada.";
+      updateDashboardFilterOptions(data.filter_options || {});
       renderMiniTable(
         "tablaDashAreas",
         ["Area", "Cantidad"],
@@ -1594,9 +1665,21 @@ document.addEventListener("DOMContentLoaded", () => {
         "Sin asignaciones cruzadas"
       );
       renderMiniTable(
+        "tablaDashCentros",
+        ["Subservicio", "Cantidad"],
+        (data.por_centro_costo || []).map(item => `<tr><td>${item.centro_costo || "-"}</td><td>${item.cantidad}</td></tr>`),
+        "Sin subservicios cruzados"
+      );
+      renderMiniTable(
+        "tablaDashSo",
+        ["SO", "Cantidad"],
+        (data.por_so || []).map(item => `<tr><td>${item.so_version || "-"}</td><td>${item.cantidad}</td></tr>`),
+        "Sin sistemas operativos"
+      );
+      renderMiniTable(
         "tablaDashLibres",
         ["IP", "Hostname", "SO"],
-        (data.libres || []).slice(0, 80).map(item => `<tr><td>${item.ip}</td><td>${item.hostname_infra || "-"}</td><td>${item.sistema_operativo || "-"}</td></tr>`),
+        (data.libres || []).slice(0, 120).map(item => `<tr><td>${item.ip}</td><td>${item.hostname_infra || "-"}</td><td>${item.so_version || item.sistema_operativo || "-"}</td></tr>`),
         "Sin VMs libres"
       );
       const table = document.getElementById("tablaDashAsignadas");
@@ -1615,7 +1698,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.centro_costo || "-"}</td>
           <td>${item.hostname_infra || "-"}</td>
           <td>${item.hostname || "-"}</td>
-          <td>${item.sistema_operativo || "-"}</td>
+          <td>${item.so_version || item.sistema_operativo || "-"}</td>
           <td>${item.fecha_entrega || "-"}</td>
         </tr>
       `).join("");
@@ -1623,8 +1706,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function cargarDashboardVms() {
       if (!currentUser || !hasPermission("dashboard_vms")) return;
-      const data = await jsonFetch(`${apiBase}/dashboard-vms`);
+      const data = await jsonFetch(`${apiBase}/dashboard-vms?${dashboardFilterParams().toString()}`);
       renderDashboardVms(data);
+    }
+
+    function limpiarDashboardVms() {
+      document.getElementById("dashQuery").value = "";
+      document.getElementById("dashAreaFilter").value = "";
+      document.getElementById("dashCentroFilter").value = "";
+      document.getElementById("dashDniFilter").value = "";
+      document.getElementById("dashSoFilter").value = "";
+      document.getElementById("dashEstadoFilter").value = "";
+      cargarDashboardVms();
+    }
+
+    async function descargarDashboardVms() {
+      if (!currentUser || !hasPermission("exportar")) {
+        alert("Solo el administrador puede descargar este Excel.");
+        return;
+      }
+      const response = await fetch(`${apiBase}/export-dashboard-vms?${dashboardFilterParams().toString()}`, {
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        alert("No se pudo descargar el dashboard filtrado.");
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "dashboard_vms_filtrado.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     }
 
     async function subirInfraVms() {
@@ -1922,6 +2038,18 @@ function limpiar() {
 
     document.getElementById("tipoEntornoFilter").addEventListener("change", async () => {
       await buscar();
+    });
+
+    ["dashAreaFilter", "dashCentroFilter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
+    });
+
+    ["dashQuery", "dashDniFilter"].forEach((id) => {
+      document.getElementById(id).addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          cargarDashboardVms();
+        }
+      });
     });
 
 document.querySelectorAll("[data-export-segment]").forEach((card) => {
