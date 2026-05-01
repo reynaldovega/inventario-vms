@@ -560,6 +560,19 @@ def has_valid_ip(series: pd.Series) -> pd.Series:
     return (~cleaned.isin(["", "-", "nan", "None", "NULL"])) & cleaned.str.contains(r"[0-9]")
 
 
+def has_assignment_evidence(df: pd.DataFrame) -> pd.Series:
+    checks = []
+    for field in ["dni", "area", "centro_costo", "ticket"]:
+        if field in df.columns:
+            checks.append(df[field].fillna("").astype(str).map(clean_value) != "")
+    if not checks:
+        return pd.Series(False, index=df.index)
+    evidence = checks[0]
+    for check in checks[1:]:
+        evidence = evidence | check
+    return evidence
+
+
 def sign_data(payload: str) -> str:
     return hmac.new(SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -863,16 +876,17 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     if infra.empty:
         return pd.DataFrame(), infra_file_name, 0
 
-    assigned = inventory[has_valid_ip(inventory["ip"]) & has_valid_dni(inventory["dni"])].copy()
+    assigned = inventory[has_valid_ip(inventory["ip"]) & has_assignment_evidence(inventory)].copy()
     assigned["ip_norm"] = assigned["ip"].map(normalize_text)
     assigned = assigned.drop_duplicates(subset=["ip_norm"], keep="first")
+    assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "hostname", "ticket", "so"]],
+        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "hostname", "ticket", "so", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
-    merged["estado_cruce"] = merged["dni"].apply(lambda value: "ASIGNADA" if clean_value(value) else "LIBRE")
+    merged["estado_cruce"] = merged["_assigned_evidence"].apply(lambda value: "ASIGNADA" if clean_value(value) else "LIBRE")
     merged["so_inventario"] = merged.get("so", "")
     merged["so_version"] = merged["so_version"].where(merged["so_version"] != "", merged["so_inventario"].map(normalize_os_version))
     merged["sistema_operativo"] = merged["sistema_operativo"].where(merged["sistema_operativo"] != "", merged["so_inventario"])

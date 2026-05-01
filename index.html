@@ -804,7 +804,7 @@
     <div class="tab-pane hidden" id="tabDashboard">
       <section class="hero">
         <h1>Dashboard</h1>
-        <p class="subtitle">Cruce entre la base de infraestructura y la hoja Inventario VMS. Una VM queda asignada cuando la IP existe en inventario con DNI; queda libre cuando la IP de infraestructura no aparece asignada.</p>
+        <p class="subtitle">Cruce entre infraestructura e Inventario VMS. Una VM queda asignada cuando la IP existe en la base principal con DNI, campana, subservicio o ticket; queda libre cuando esa IP no tiene evidencia de asignacion.</p>
         <div class="toolbar">
           <div class="panel">
             <h2>Cargar Excel infraestructura</h2>
@@ -830,7 +830,7 @@
         <div class="section-head">
           <div>
             <h3>Analisis filtrado</h3>
-            <p>Filtra el cruce por campana, subservicio, DNI, sistema operativo o texto libre.</p>
+            <p>Filtra el cruce por campana, subservicio, DNI, sistema operativo, estado o texto libre.</p>
           </div>
           <button class="secondary hidden admin-export" id="exportDashboardButton" onclick="descargarDashboardVms()" type="button">Exportar filtrado</button>
         </div>
