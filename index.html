@@ -33,6 +33,41 @@
       min-height: 100vh;
     }
 
+    .loading-indicator {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 80;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255, 250, 241, 0.96);
+      border: 1px solid rgba(216, 203, 183, 0.9);
+      box-shadow: var(--shadow);
+      color: var(--brand-dark);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .loading-indicator.active {
+      display: inline-flex;
+    }
+
+    .loading-spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid rgba(30, 111, 92, 0.18);
+      border-top-color: var(--brand);
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
     body.locked .shell,
     body.locked .auth-overlay {
       display: none;
@@ -681,6 +716,10 @@
   </style>
 </head>
 <body class="locked">
+  <div class="loading-indicator" id="loadingIndicator" aria-live="polite">
+    <span class="loading-spinner"></span>
+    <span>Cargando datos</span>
+  </div>
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
       <h2 id="authTitle">Acceso seguro</h2>
@@ -1053,6 +1092,7 @@
     let pendingUsername = "";
     let inactivityTimer = null;
     let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+    let dashboardLoadedOnce = false;
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
@@ -1080,12 +1120,20 @@
       };
     }
 
+    let loadingCount = 0;
+
+    function setLoading(active) {
+      loadingCount = Math.max(0, loadingCount + (active ? 1 : -1));
+      document.getElementById("loadingIndicator").classList.toggle("active", loadingCount > 0);
+    }
+
     async function jsonFetch(url, options = {}) {
       const headers = { ...(options.headers || {}) };
       if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
         headers["Content-Type"] = "application/json";
       }
 
+      setLoading(true);
       try {
         const response = await fetch(url, {
           credentials: "same-origin",
@@ -1106,6 +1154,8 @@
           throw new Error("No se pudo conectar con el servidor. Revisa si Render termino de desplegar o si el backend esta reiniciando.");
         }
         throw error;
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -1539,9 +1589,15 @@
       const tipoEntorno = document.getElementById("tipoEntornoFilter").value;
       const status = document.getElementById("statusFilter").value;
       const params = new URLSearchParams({ q: query, tipo_entorno: tipoEntorno, status });
-      const response = await fetch(`${apiBase}/export-search-assignments?${params.toString()}`, {
-        credentials: "same-origin",
-      });
+      setLoading(true);
+      let response;
+      try {
+        response = await fetch(`${apiBase}/export-search-assignments?${params.toString()}`, {
+          credentials: "same-origin",
+        });
+      } finally {
+        setLoading(false);
+      }
 
       if (!response.ok) {
         alert("No se pudo descargar el Excel filtrado.");
@@ -1569,9 +1625,15 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const params = new URLSearchParams({ segment, ...currentFilters() });
-      const response = await fetch(`${apiBase}/export-card?${params.toString()}`, {
-        credentials: "same-origin",
-      });
+      setLoading(true);
+      let response;
+      try {
+        response = await fetch(`${apiBase}/export-card?${params.toString()}`, {
+          credentials: "same-origin",
+        });
+      } finally {
+        setLoading(false);
+      }
 
       if (!response.ok) {
         alert("No se pudo descargar el Excel de esta tarjeta.");
@@ -1770,6 +1832,15 @@ document.addEventListener("DOMContentLoaded", () => {
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
     }
 
+    function resetDashboardFilterControls() {
+      document.getElementById("dashQuery").value = "";
+      document.getElementById("dashAreaFilter").value = "";
+      document.getElementById("dashCentroFilter").value = "";
+      document.getElementById("dashDniFilter").value = "";
+      document.getElementById("dashSoFilter").value = "";
+      document.getElementById("dashEstadoFilter").value = "";
+    }
+
     function renderDonutChart(id, items) {
       const target = document.getElementById(id);
       const cleanItems = (items || []).filter(item => Number(item.value) > 0);
@@ -1917,17 +1988,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function cargarDashboardVms() {
       if (!currentUser || !hasPermission("dashboard_vms")) return;
+      if (!dashboardLoadedOnce) {
+        resetDashboardFilterControls();
+        dashboardLoadedOnce = true;
+      }
       const data = await jsonFetch(`${apiBase}/dashboard-vms?${dashboardFilterParams().toString()}`);
       renderDashboardVms(data);
     }
 
     function limpiarDashboardVms() {
-      document.getElementById("dashQuery").value = "";
-      document.getElementById("dashAreaFilter").value = "";
-      document.getElementById("dashCentroFilter").value = "";
-      document.getElementById("dashDniFilter").value = "";
-      document.getElementById("dashSoFilter").value = "";
-      document.getElementById("dashEstadoFilter").value = "";
+      resetDashboardFilterControls();
       cargarDashboardVms();
     }
 
@@ -1936,9 +2006,15 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Solo el administrador puede descargar este Excel.");
         return;
       }
-      const response = await fetch(`${apiBase}/export-dashboard-vms?${dashboardFilterParams().toString()}`, {
-        credentials: "same-origin",
-      });
+      setLoading(true);
+      let response;
+      try {
+        response = await fetch(`${apiBase}/export-dashboard-vms?${dashboardFilterParams().toString()}`, {
+          credentials: "same-origin",
+        });
+      } finally {
+        setLoading(false);
+      }
       if (!response.ok) {
         alert("No se pudo descargar el dashboard filtrado.");
         return;
@@ -1968,6 +2044,7 @@ document.addEventListener("DOMContentLoaded", () => {
         headers: {},
         body: formData,
       });
+      resetDashboardFilterControls();
       await cargarDashboardVms();
       alert(response.persisted
         ? `${response.mensaje}. Registros: ${response.registros}. Quedo guardada.`
