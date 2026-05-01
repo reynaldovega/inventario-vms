@@ -509,7 +509,7 @@
     }
 
     .dashboard-filters {
-      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      grid-template-columns: repeat(7, minmax(130px, 1fr));
       align-items: end;
     }
 
@@ -796,7 +796,7 @@
             <button class="secondary" onclick="limpiar()">Limpiar</button>
           </div>
           <div class="helper">Ejemplo de uso: <strong>41107381, sccvdi, windows 10</strong>. El sistema buscara cada parte y mostrara los registros relacionados.</div>
-          <div class="helper">Columnas tomadas del Excel: A IP, D Area, E Centro de costo, F DNI, Q Hostname, X Ticket, Y Fecha conexion, Z Fecha asignacion, AA Modelo seguro.</div>
+          <div class="helper">Columnas tomadas del Excel: A IP, D Area, E Centro de costo, F DNI, Q Hostname, X Ticket, Y Fecha conexion, Z Fecha asignacion, AA Modelo seguro, AB CARGO2.</div>
         </div>
       </div>
 
@@ -897,6 +897,19 @@
             <table class="mini-table" id="tablaCentros"></table>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <h3>CARGO2 AB activos</h3>
+              <p>Conteo de remotas asignadas por CARGO2 AB.</p>
+            </div>
+            <button class="secondary hidden admin-export" data-export-button="por_cargo2_ab" type="button">Exportar</button>
+          </div>
+          <div class="table-wrap">
+            <table class="mini-table" id="tablaCargos2"></table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -984,6 +997,7 @@
           <input type="text" id="dashQuery" placeholder="Buscar IP, hostname, ticket">
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
+          <select id="dashCargo2Filter"><option value="">CARGO2 AB</option></select>
           <input type="text" id="dashDniFilter" placeholder="DNI">
           <select id="dashSoFilter"><option value="">Sistema operativo</option></select>
           <select id="dashEstadoFilter">
@@ -1008,6 +1022,10 @@
           <h3>Equipos asignados por subservicio</h3>
           <div id="chartVmServicios"></div>
         </div>
+        <div class="chart-panel wide">
+          <h3>Equipos asignados por CARGO2 AB</h3>
+          <div id="chartVmCargo2"></div>
+        </div>
       </section>
       <section class="grid">
         <div class="panel">
@@ -1021,9 +1039,15 @@
       </section>
       <section class="grid">
         <div class="panel">
+          <h3>Asignadas por CARGO2 AB</h3>
+          <div class="table-wrap"><table class="mini-table" id="tablaDashCargo2"></table></div>
+        </div>
+        <div class="panel">
           <h3>Sistemas operativos</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashSo"></table></div>
         </div>
+      </section>
+      <section class="grid">
         <div class="panel">
           <h3>Libres</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashLibres"></table></div>
@@ -1575,6 +1599,7 @@
       document.getElementById("tablaPivot").innerHTML = "";
       renderAreas([]);
       renderCentros([]);
+      renderCargos2([]);
       renderTickets([]);
       setSearchSectionVisible(false);
     }
@@ -1660,7 +1685,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "CARGO2 AB", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
       ];
 
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
@@ -1676,6 +1701,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.ticket || "-"}</td>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.cargo2_ab || "-"}</td>
           <td>${item.fecha_conexion || "-"}</td>
           <td>${item.fecha_asignacion || "-"}</td>
           <td>${item.modelo_seguro || "-"}</td>
@@ -1715,6 +1741,15 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
 
+    function renderCargos2(items) {
+      renderMiniTable(
+        "tablaCargos2",
+        ["CARGO2 AB", "Cantidad"],
+        items.map(item => `<tr><td>${item.cargo2_ab || "-"}</td><td>${item.cantidad}</td></tr>`),
+        "Sin datos de CARGO2 AB"
+      );
+    }
+
    function renderTickets(items) {
   renderMiniTable(
     "tablaTickets",
@@ -1742,12 +1777,13 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const headers = ["Area", "Centro de costo", "Cantidad IPs", "IPs unicas", "DNI unicos", "Tickets unicos", "Windows 10", "Windows 11"];
+      const headers = ["Area", "Centro de costo", "CARGO2 AB", "Cantidad IPs", "IPs unicas", "DNI unicos", "Tickets unicos", "Windows 10", "Windows 11"];
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
       const rows = items.map(item => `
         <tr>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.cargo2_ab || "-"}</td>
           <td>${item.cantidad_ips ?? 0}</td>
           <td>${item.ips_unicas ?? 0}</td>
           <td>${item.usuarios_dni ?? 0}</td>
@@ -1809,6 +1845,7 @@ document.addEventListener("DOMContentLoaded", () => {
         q: document.getElementById("dashQuery").value.trim(),
         area: document.getElementById("dashAreaFilter").value,
         centro_costo: document.getElementById("dashCentroFilter").value,
+        cargo2_ab: document.getElementById("dashCargo2Filter").value,
         dni: document.getElementById("dashDniFilter").value.trim(),
         sistema_operativo: document.getElementById("dashSoFilter").value,
         estado: document.getElementById("dashEstadoFilter").value,
@@ -1829,6 +1866,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateDashboardFilterOptions(options) {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
+      fillSelectOptions("dashCargo2Filter", "CARGO2 AB", options.cargos2_ab || []);
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
     }
 
@@ -1836,6 +1874,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("dashQuery").value = "";
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
+      document.getElementById("dashCargo2Filter").value = "";
       document.getElementById("dashDniFilter").value = "";
       document.getElementById("dashSoFilter").value = "";
       document.getElementById("dashEstadoFilter").value = "";
@@ -1924,6 +1963,7 @@ document.addEventListener("DOMContentLoaded", () => {
         color: ["#2454ff", "#e95f2a", "#2396d1", "#7b2cbf", "#5f6c72"][index % 5],
       })));
       renderBarChart("chartVmServicios", data.por_centro_costo || [], "centro_costo", "#2396d1");
+      renderBarChart("chartVmCargo2", data.por_cargo2_ab || [], "cargo2_ab", "#7b6f2c");
     }
 
     function renderDashboardVms(data) {
@@ -1952,6 +1992,12 @@ document.addEventListener("DOMContentLoaded", () => {
         "Sin subservicios cruzados"
       );
       renderMiniTable(
+        "tablaDashCargo2",
+        ["CARGO2 AB", "Cantidad"],
+        (data.por_cargo2_ab || []).map(item => `<tr><td>${item.cargo2_ab || "-"}</td><td>${item.cantidad}</td></tr>`),
+        "Sin datos de CARGO2 AB"
+      );
+      renderMiniTable(
         "tablaDashSo",
         ["SO", "Cantidad"],
         (data.por_so || []).map(item => `<tr><td>${item.so_version || "-"}</td><td>${item.cantidad}</td></tr>`),
@@ -1970,7 +2016,7 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "DNI", "Nombre", "Area", "Centro costo", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "DNI", "Nombre", "Area", "Centro costo", "CARGO2 AB", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
@@ -1978,6 +2024,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.nombre_completo || "-"}</td>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.cargo2_ab || "-"}</td>
           <td>${item.hostname_infra || "-"}</td>
           <td>${item.hostname || "-"}</td>
           <td>${item.so_version || item.sistema_operativo || "-"}</td>
@@ -2179,6 +2226,7 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
 
    renderAreas(dashboard.por_area || []);
    renderCentros(dashboard.por_centro_costo || []);
+   renderCargos2(dashboard.por_cargo2_ab || []);
    renderPivotTable(pivot || []);
 
    renderTickets(dashboard.por_ticket || []);
@@ -2205,6 +2253,7 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
       setText("searchEstadoActual", statusLabel(status));
       renderAreas(dashboard.por_area || []);
       renderCentros(dashboard.por_centro_costo || []);
+      renderCargos2(dashboard.por_cargo2_ab || []);
       renderTickets(dashboard.por_ticket || []);
       renderPivotTable([]);
     }
@@ -2331,7 +2380,7 @@ function limpiar() {
       await buscar();
     });
 
-    ["dashAreaFilter", "dashCentroFilter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
+    ["dashAreaFilter", "dashCentroFilter", "dashCargo2Filter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
     });
 

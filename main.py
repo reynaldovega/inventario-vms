@@ -781,6 +781,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed["fecha_conexion"] = format_date(safe_col(raw, 24))
     processed["fecha_asignacion"] = format_date(safe_col(raw, 25))
     processed["modelo_seguro"] = safe_col(raw, 26).map(clean_value)
+    processed["cargo2_ab"] = safe_col(raw, 27).map(clean_value)
 
     processed["nombre_completo"] = compact_name(
         [
@@ -824,6 +825,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
                 "ticket",
                 "area",
                 "centro_costo",
+                "cargo2_ab",
                 "estado",
                 "fecha_conexion",
                 "fecha_asignacion",
@@ -936,6 +938,7 @@ def dashboard_filter_options(merged: pd.DataFrame) -> dict:
     return {
         "areas": unique_values("area"),
         "centros_costo": unique_values("centro_costo"),
+        "cargos2_ab": unique_values("cargo2_ab"),
         "sistemas_operativos": unique_values("so_version"),
         "estados": ["ASIGNADA", "LIBRE"],
     }
@@ -946,6 +949,7 @@ def filter_dashboard_rows(
     q: str = "",
     area: str = "",
     centro_costo: str = "",
+    cargo2_ab: str = "",
     dni: str = "",
     sistema_operativo: str = "",
     estado: str = "",
@@ -955,6 +959,7 @@ def filter_dashboard_rows(
     filters = {
         "area": area,
         "centro_costo": centro_costo,
+        "cargo2_ab": cargo2_ab,
         "dni": dni,
         "so_version": sistema_operativo,
         "estado_cruce": estado,
@@ -990,7 +995,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "hostname", "ticket", "so", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "cargo2_ab", "hostname", "ticket", "so", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
@@ -1005,6 +1010,7 @@ def build_vms_dashboard_data(
     q: str = "",
     area: str = "",
     centro_costo: str = "",
+    cargo2_ab: str = "",
     dni: str = "",
     sistema_operativo: str = "",
     estado: str = "",
@@ -1019,14 +1025,15 @@ def build_vms_dashboard_data(
             "total_filtrado": 0,
             "por_area": [],
             "por_centro_costo": [],
+            "por_cargo2_ab": [],
             "por_so": [],
             "asignadas": [],
             "libres": [],
-            "filter_options": {"areas": [], "centros_costo": [], "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
+            "filter_options": {"areas": [], "centros_costo": [], "cargos2_ab": [], "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
             "storage": data_dir_status(),
         }
 
-    filtered = filter_dashboard_rows(merged, q, area, centro_costo, dni, sistema_operativo, estado)
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
 
     assigned_rows = filtered[filtered["estado_cruce"] == "ASIGNADA"].copy()
     free_rows = filtered[filtered["estado_cruce"] == "LIBRE"].copy()
@@ -1039,6 +1046,7 @@ def build_vms_dashboard_data(
         "total_filtrado": int(len(filtered)),
         "por_area": summarize_group(assigned_rows.rename(columns={"area": "area"}), "area", limit=12),
         "por_centro_costo": summarize_group(assigned_rows.rename(columns={"centro_costo": "centro_costo"}), "centro_costo", limit=12),
+        "por_cargo2_ab": summarize_group(assigned_rows.rename(columns={"cargo2_ab": "cargo2_ab"}), "cargo2_ab", limit=12),
         "por_so": summarize_group(filtered.rename(columns={"so_version": "so_version"}), "so_version", limit=8),
         "asignadas": assigned_rows.head(500).to_dict(orient="records"),
         "libres": free_rows.head(500).to_dict(orient="records"),
@@ -1127,7 +1135,7 @@ def smart_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
     normalized_fields = {
         field: df[field].map(normalize_text)
-        for field in ["dni", "ip", "hostname", "ticket", "area", "centro_costo", "so"]
+        for field in ["dni", "ip", "hostname", "ticket", "area", "centro_costo", "cargo2_ab", "so"]
     }
 
     for group in terms:
@@ -1164,6 +1172,10 @@ def exact_match_search(df: pd.DataFrame, query: str) -> pd.DataFrame | None:
     centro_matches = df["centro_costo"].map(normalize_text) == normalized_query
     if centro_matches.any():
         return df[centro_matches].copy()
+
+    cargo_matches = df["cargo2_ab"].map(normalize_text) == normalized_query
+    if cargo_matches.any():
+        return df[cargo_matches].copy()
 
     return None
 
@@ -1342,6 +1354,7 @@ def build_search_dashboard(df: pd.DataFrame) -> dict:
         "usuarios_con_dni": int(scoped["dni"].nunique()) if not scoped.empty else 0,
         "por_area": summarize_group(scoped, "area", limit=12),
         "por_centro_costo": summarize_group(scoped, "centro_costo", limit=12),
+        "por_cargo2_ab": summarize_group(scoped, "cargo2_ab", limit=12),
     }
 
 
@@ -1370,6 +1383,7 @@ def build_dashboard_snapshot(df: pd.DataFrame) -> dict:
         "activos_excluidos": int((active_df["clasificacion_asignacion"] == "EXCLUIDO").sum()),
         "por_area": summarize_group(remote_df, "area", limit=20),
         "por_centro_costo": summarize_group(remote_df, "centro_costo", limit=20),
+        "por_cargo2_ab": summarize_group(remote_df, "cargo2_ab", limit=20),
         "por_ticket": ticket_summary(df, limit=20),
     }
 
@@ -1385,7 +1399,7 @@ def build_assignment_pivot(df: pd.DataFrame, limit: int = 200) -> list[dict]:
     scoped["win_11"] = normalized_so.str.contains("windows 11", na=False).astype(int)
 
     grouped = (
-        scoped.groupby(["area", "centro_costo"], dropna=False)
+        scoped.groupby(["area", "centro_costo", "cargo2_ab"], dropna=False)
         .agg(
             cantidad_ips=("ip", "size"),
             ips_unicas=("ip", "nunique"),
@@ -1396,8 +1410,8 @@ def build_assignment_pivot(df: pd.DataFrame, limit: int = 200) -> list[dict]:
         )
         .reset_index()
         .sort_values(
-            by=["cantidad_ips", "ips_unicas", "usuarios_dni", "area", "centro_costo"],
-            ascending=[False, False, False, True, True],
+            by=["cantidad_ips", "ips_unicas", "usuarios_dni", "area", "centro_costo", "cargo2_ab"],
+            ascending=[False, False, False, True, True, True],
         )
         .head(limit)
     )
@@ -1419,6 +1433,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
                 "ticket",
                 "area",
                 "centro_costo",
+                "cargo2_ab",
                 "fecha_conexion",
                 "fecha_asignacion",
                 "modelo_seguro",
@@ -1437,6 +1452,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
             "ticket": scoped["ticket"],
             "area": scoped["area"],
             "centro_costo": scoped["centro_costo"],
+            "cargo2_ab": scoped["cargo2_ab"],
             "fecha_conexion": scoped["fecha_conexion"],
             "fecha_asignacion": scoped["fecha_asignacion"],
             "modelo_seguro": scoped["modelo_seguro"],
@@ -1459,6 +1475,7 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
             "ticket": scoped["ticket"] if "ticket" in scoped else "",
             "area": scoped["area"] if "area" in scoped else "",
             "centro_costo": scoped["centro_costo"] if "centro_costo" in scoped else "",
+            "cargo2_ab": scoped["cargo2_ab"] if "cargo2_ab" in scoped else "",
             "fecha_conexion": scoped["fecha_conexion"] if "fecha_conexion" in scoped else "",
             "fecha_asignacion": scoped["fecha_asignacion"] if "fecha_asignacion" in scoped else "",
             "modelo_seguro": scoped["modelo_seguro"] if "modelo_seguro" in scoped else "",
@@ -1629,6 +1646,11 @@ def get_card_export_dataframe(segment: str, q: str, tipo_entorno: str, status: s
         source_df = search_df if q else dashboard_df
         records = summarize_group(remote_assignments_only(source_df), "centro_costo", limit=500)
         return build_summary_export(records, ["centro_costo", "cantidad"])
+
+    if segment == "por_cargo2_ab":
+        source_df = search_df if q else dashboard_df
+        records = summarize_group(remote_assignments_only(source_df), "cargo2_ab", limit=500)
+        return build_summary_export(records, ["cargo2_ab", "cantidad"])
 
     if segment == "search_asignaciones_remotas":
         return build_remote_assignments_export(search_df)
@@ -2024,12 +2046,13 @@ def dashboard_vms(
     q: str = Query(default=""),
     area: str = Query(default=""),
     centro_costo: str = Query(default=""),
+    cargo2_ab: str = Query(default=""),
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
     estado: str = Query(default=""),
 ):
     require_permission(request, "dashboard_vms")
-    return build_vms_dashboard_data(q, area, centro_costo, dni, sistema_operativo, estado)
+    return build_vms_dashboard_data(q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
 
 
 @app.get("/export-dashboard-vms")
@@ -2038,13 +2061,14 @@ def export_dashboard_vms(
     q: str = Query(default=""),
     area: str = Query(default=""),
     centro_costo: str = Query(default=""),
+    cargo2_ab: str = Query(default=""),
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
     estado: str = Query(default=""),
 ):
     require_permission(request, "exportar")
     merged, _, _ = build_vms_dashboard_rows()
-    filtered = filter_dashboard_rows(merged, q, area, centro_costo, dni, sistema_operativo, estado)
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
     columns = [
         "estado_cruce",
         "ip",
@@ -2052,6 +2076,7 @@ def export_dashboard_vms(
         "nombre_completo",
         "area",
         "centro_costo",
+        "cargo2_ab",
         "hostname_infra",
         "hostname",
         "ticket",
