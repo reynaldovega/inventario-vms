@@ -111,23 +111,23 @@
     }
 
     .password-field input {
-      padding-left: 52px;
-      padding-right: 14px;
+      padding-left: 14px;
+      padding-right: 54px;
     }
 
     .password-toggle {
       position: absolute;
-      left: 8px;
+      right: 8px;
       top: 50%;
       transform: translateY(-50%);
       width: 38px;
       height: 38px;
       min-height: 38px;
       padding: 0;
-      border-radius: 50%;
-      background: transparent;
+      border-radius: 10px;
+      background: #f7f3ea;
       color: var(--muted);
-      border-color: transparent;
+      border: 1px solid var(--line);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -814,6 +814,7 @@
               <button onclick="subirInfraVms()">Subir base VMS</button>
             </div>
             <div class="file-meta" id="infraFileMeta">Sin base de infraestructura cargada.</div>
+            <div class="helper" id="infraStorageStatus"></div>
           </div>
           <div class="panel">
             <h2>Resumen de VM</h2>
@@ -1657,6 +1658,10 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("infraFileMeta").textContent = data.archivo
         ? `Base infraestructura: ${data.archivo}`
         : "Sin base de infraestructura cargada.";
+      const storage = data.storage || {};
+      document.getElementById("infraStorageStatus").textContent = storage.writable
+        ? `Guardado persistente activo en ${storage.path || "DATA_DIR"}.`
+        : "Advertencia: el almacenamiento persistente no esta disponible en el servidor.";
       updateDashboardFilterOptions(data.filter_options || {});
       renderMiniTable(
         "tablaDashAreas",
@@ -1758,7 +1763,10 @@ document.addEventListener("DOMContentLoaded", () => {
         body: formData,
       });
       await cargarDashboardVms();
-      alert(`${response.mensaje}. Registros: ${response.registros}`);
+      alert(response.persisted
+        ? `${response.mensaje}. Registros: ${response.registros}. Quedo guardada.`
+        : `${response.mensaje}. Registros: ${response.registros}. Advertencia: no se pudo guardar de forma persistente en el servidor.`
+      );
     }
 
     async function enviarInvitacion() {

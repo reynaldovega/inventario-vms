@@ -49,6 +49,7 @@ INVITES_STORE_PATH = DATA_DIR / "invites.json"
 APPLICATIONS_STORE_PATH = DATA_DIR / "applications_tto.json"
 INFRA_STORE_PATH = DATA_DIR / "infra_vms.xlsx"
 INFRA_META_PATH = DATA_DIR / "infra_vms_meta.json"
+INFRA_JSON_STORE_PATH = DATA_DIR / "infra_vms.json"
 AGENT_REPORT_TOKEN = os.getenv("AGENT_REPORT_TOKEN", "").strip()
 ENTRY_ACCESS_TOKEN = os.getenv("ENTRY_ACCESS_TOKEN", "").strip()
 SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
@@ -801,18 +802,62 @@ def normalize_os_version(value: object) -> str:
     return ""
 
 
-def save_infra_upload(file_name: str, content: bytes) -> None:
-    ensure_data_dir()
-    INFRA_STORE_PATH.write_bytes(content)
-    save_json_file(INFRA_META_PATH, {"archivo": file_name, "updated_at": now_ts()})
+def save_infra_upload(file_name: str, content: bytes) -> bool:
+    try:
+        ensure_data_dir()
+        INFRA_STORE_PATH.write_bytes(content)
+        save_json_file(INFRA_META_PATH, {"archivo": file_name, "updated_at": now_ts()})
+        return True
+    except Exception as exc:
+        print(f"[ERROR] No se pudo guardar Excel de infraestructura: {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
+def save_infra_dataframe(df: pd.DataFrame) -> bool:
+    try:
+        save_json_file(INFRA_JSON_STORE_PATH, df.fillna("").to_dict(orient="records"))
+        return True
+    except Exception as exc:
+        print(f"[ERROR] No se pudo guardar JSON de infraestructura: {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
+def load_infra_dataframe_from_store() -> pd.DataFrame:
+    if INFRA_STORE_PATH.exists():
+        return load_infra_dataframe_from_excel(INFRA_STORE_PATH)
+    raw = load_json_file(INFRA_JSON_STORE_PATH, [])
+    if isinstance(raw, list) and raw:
+        return pd.DataFrame(raw).fillna("")
+    return pd.DataFrame()
+
+
+def data_dir_status() -> dict:
+    try:
+        ensure_data_dir()
+        probe = DATA_DIR / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        writable = True
+        try:
+            probe.unlink(missing_ok=True)
+        except Exception:
+            pass
+    except Exception:
+        writable = False
+    return {
+        "path": str(DATA_DIR),
+        "writable": writable,
+        "infra_excel_exists": INFRA_STORE_PATH.exists(),
+        "infra_json_exists": INFRA_JSON_STORE_PATH.exists(),
+    }
 
 
 def ensure_infra_loaded() -> pd.DataFrame:
     global infra_df_global, infra_file_name
     if not infra_df_global.empty:
         return infra_df_global
-    if INFRA_STORE_PATH.exists():
-        infra_df_global = load_infra_dataframe_from_excel(INFRA_STORE_PATH)
+    stored = load_infra_dataframe_from_store()
+    if not stored.empty:
+        infra_df_global = stored
         meta = load_json_file(INFRA_META_PATH, {})
         infra_file_name = clean_value(meta.get("archivo", "")) or INFRA_STORE_PATH.name
     return infra_df_global
@@ -915,6 +960,7 @@ def build_vms_dashboard_data(
             "asignadas": [],
             "libres": [],
             "filter_options": {"areas": [], "centros_costo": [], "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
+            "storage": data_dir_status(),
         }
 
     filtered = filter_dashboard_rows(merged, q, area, centro_costo, dni, sistema_operativo, estado)
@@ -934,6 +980,7 @@ def build_vms_dashboard_data(
         "asignadas": assigned_rows.head(500).to_dict(orient="records"),
         "libres": free_rows.head(500).to_dict(orient="records"),
         "filter_options": dashboard_filter_options(merged),
+        "storage": data_dir_status(),
     }
 
 
@@ -1886,11 +1933,13 @@ async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
     content = await file.read()
     infra_df_global = load_infra_dataframe_from_excel(io.BytesIO(content))
     infra_file_name = file.filename or "infra_vms.xlsx"
-    save_infra_upload(infra_file_name, content)
+    persisted_excel = save_infra_upload(infra_file_name, content)
+    persisted_json = save_infra_dataframe(infra_df_global)
     return {
         "mensaje": "Base de infraestructura cargada correctamente",
         "registros": int(len(infra_df_global)),
         "archivo": infra_file_name,
+        "persisted": persisted_excel or persisted_json,
     }
 
 
