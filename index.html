@@ -476,6 +476,72 @@
       box-shadow: 0 0 0 2px rgba(30, 111, 92, 0.12);
     }
 
+    .apps-panel {
+      padding: 12px;
+    }
+
+    .apps-table-wrap {
+      overflow-x: hidden;
+    }
+
+    #tablaAplicaciones {
+      min-width: 0;
+      table-layout: fixed;
+    }
+
+    #tablaAplicaciones th,
+    #tablaAplicaciones td {
+      padding: 8px 7px;
+      font-size: 0.72rem;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+
+    #tablaAplicaciones th {
+      font-size: 0.68rem;
+    }
+
+    #tablaAplicaciones .column-filter-row th {
+      top: 32px;
+      padding: 5px 4px;
+    }
+
+    #tablaAplicaciones .column-filter-row input {
+      min-width: 0;
+      padding: 5px 6px;
+      font-size: 0.68rem;
+    }
+
+    #tablaAplicaciones th:nth-child(1),
+    #tablaAplicaciones td:nth-child(1) { width: 5.5%; }
+    #tablaAplicaciones th:nth-child(2),
+    #tablaAplicaciones td:nth-child(2) { width: 6%; }
+    #tablaAplicaciones th:nth-child(3),
+    #tablaAplicaciones td:nth-child(3) { width: 7%; }
+    #tablaAplicaciones th:nth-child(4),
+    #tablaAplicaciones td:nth-child(4) { width: 10%; }
+    #tablaAplicaciones th:nth-child(5),
+    #tablaAplicaciones td:nth-child(5) { width: 7%; }
+    #tablaAplicaciones th:nth-child(6),
+    #tablaAplicaciones td:nth-child(6) { width: 10%; }
+    #tablaAplicaciones th:nth-child(7),
+    #tablaAplicaciones td:nth-child(7) { width: 5.8%; }
+    #tablaAplicaciones th:nth-child(8),
+    #tablaAplicaciones td:nth-child(8) { width: 6.5%; }
+    #tablaAplicaciones th:nth-child(9),
+    #tablaAplicaciones td:nth-child(9) { width: 9%; }
+    #tablaAplicaciones th:nth-child(10),
+    #tablaAplicaciones td:nth-child(10) { width: 8%; }
+    #tablaAplicaciones th:nth-child(11),
+    #tablaAplicaciones td:nth-child(11) { width: 7%; }
+    #tablaAplicaciones th:nth-child(12),
+    #tablaAplicaciones td:nth-child(12) { width: 6%; }
+    #tablaAplicaciones th:nth-child(13),
+    #tablaAplicaciones td:nth-child(13) { width: 6%; }
+    #tablaAplicaciones th:nth-child(14),
+    #tablaAplicaciones td:nth-child(14) { width: 6.2%; }
+
     .badge {
       display: inline-flex;
       align-items: center;
@@ -1023,8 +1089,14 @@
           </div>
         </div>
       </section>
-      <section class="panel" style="margin-top:22px;">
-        <div class="table-wrap">
+      <section class="panel apps-panel" style="margin-top:22px;">
+        <div class="section-head">
+          <div>
+            <h3>Reportes filtrados</h3>
+          </div>
+          <button class="secondary hidden admin-export" id="exportApplicationsButton" onclick="descargarAplicacionesFiltradas()" type="button">Exportar filtrado</button>
+        </div>
+        <div class="table-wrap apps-table-wrap">
           <table id="tablaAplicaciones"></table>
         </div>
       </section>
@@ -2035,6 +2107,17 @@ document.addEventListener("DOMContentLoaded", () => {
       setText("appsAlertas", alertas);
     }
 
+    function applicationFilterParams() {
+      const params = new URLSearchParams({
+        q: document.getElementById("appsSearch").value.trim(),
+      });
+      Object.entries(applicationColumnFilters).forEach(([key, value]) => {
+        const clean = String(value || "").trim();
+        if (clean) params.set(key, clean);
+      });
+      return params;
+    }
+
     function renderApplications(data) {
       currentApplications = Array.isArray(data) ? data : [];
       const table = document.getElementById("tablaAplicaciones");
@@ -2096,6 +2179,36 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("appsSearch").value = "";
       applicationColumnFilters = {};
       cargarAplicaciones();
+    }
+
+    async function descargarAplicacionesFiltradas() {
+      if (!currentUser || !hasPermission("exportar")) {
+        alert("Solo el administrador puede descargar este Excel.");
+        return;
+      }
+      const params = applicationFilterParams();
+      setLoading(true);
+      let response;
+      try {
+        response = await fetch(`${apiBase}/export-applications-tto?${params.toString()}`, {
+          credentials: "same-origin",
+        });
+      } finally {
+        setLoading(false);
+      }
+      if (!response.ok) {
+        alert("No se pudo descargar el Excel filtrado.");
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "aplicaciones_tto_filtrado.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     }
 
     function dashboardFilterParams() {

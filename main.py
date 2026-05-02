@@ -70,6 +70,24 @@ infra_df_global = pd.DataFrame()
 infra_file_name = ""
 applications_df_global = pd.DataFrame()
 
+APPLICATION_EXPORT_COLUMNS = [
+    ("estado_alerta", "Alerta"),
+    ("last_action", "Accion"),
+    ("dni", "DNI"),
+    ("nombre_completo", "Nombre"),
+    ("hostname", "Hostname"),
+    ("processor", "Procesador"),
+    ("memory_ram", "RAM"),
+    ("disk", "Disco"),
+    ("windows_version", "Windows"),
+    ("windows_license", "Licencia"),
+    ("internet", "Internet"),
+    ("carbon_black_installed", "Carbon"),
+    ("anyconnect_installed", "AnyConnect"),
+    ("rdp_remote_ips", "RDP destino"),
+    ("reported_at", "Reporte"),
+]
+
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 USERS_STORE_PATH = DATA_DIR / "users.json"
 INVITES_STORE_PATH = DATA_DIR / "invites.json"
@@ -1194,6 +1212,51 @@ def smart_search_applications(df: pd.DataFrame, query: str) -> pd.DataFrame:
     for term in terms:
         mask &= blob.str.contains(term, na=False)
     return df[mask].copy()
+
+
+def application_display_value(row: pd.Series, key: str) -> str:
+    if key == "last_action":
+        return clean_value(row.get("last_action", "")) or "inventario"
+    if key == "internet":
+        parts = []
+        download = clean_value(row.get("internet_download_mbps", "")) or clean_value(row.get("download_mbps", "")) or clean_value(row.get("speedtest_download_mbps", ""))
+        upload = clean_value(row.get("internet_upload_mbps", "")) or clean_value(row.get("upload_mbps", "")) or clean_value(row.get("speedtest_upload_mbps", ""))
+        ping = clean_value(row.get("internet_ping_ms", "")) or clean_value(row.get("ping_ms", "")) or clean_value(row.get("speedtest_ping_ms", ""))
+        if download:
+            parts.append(f"Bajada {download} Mbps")
+        if upload:
+            parts.append(f"Subida {upload} Mbps")
+        if ping:
+            parts.append(f"Ping {ping} ms")
+        if parts:
+            return " | ".join(parts)
+        internet_speed = clean_value(row.get("internet_speed", ""))
+        return f"Red local: {internet_speed}" if internet_speed else "-"
+    return clean_value(row.get(key, "")) or "-"
+
+
+def filter_applications_by_columns(df: pd.DataFrame, filters: dict[str, str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    mask = pd.Series(True, index=df.index)
+    valid_keys = {key for key, _ in APPLICATION_EXPORT_COLUMNS}
+    for key, value in filters.items():
+        if key not in valid_keys:
+            continue
+        terms = [term for term in normalize_text(value).split() if term]
+        if not terms:
+            continue
+        values = df.apply(lambda row: normalize_text(application_display_value(row, key)), axis=1)
+        for term in terms:
+            mask &= values.str.contains(term, na=False)
+    return df[mask].copy()
+
+
+def build_applications_export(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for _, row in df.fillna("").iterrows():
+        rows.append({label: application_display_value(row, key) for key, label in APPLICATION_EXPORT_COLUMNS})
+    return pd.DataFrame(rows, columns=[label for _, label in APPLICATION_EXPORT_COLUMNS])
 
 
 def ensure_data_loaded() -> pd.DataFrame:
@@ -2337,6 +2400,61 @@ def applications_tto(
 def applications_tto_status(request: Request):
     require_permission(request, "aplicaciones_tto")
     return applications_store_status()
+
+
+@app.get("/export-applications-tto")
+def export_applications_tto(
+    request: Request,
+    q: str = Query(default=""),
+    estado_alerta: str = Query(default=""),
+    last_action: str = Query(default=""),
+    dni: str = Query(default=""),
+    nombre_completo: str = Query(default=""),
+    hostname: str = Query(default=""),
+    processor: str = Query(default=""),
+    memory_ram: str = Query(default=""),
+    disk: str = Query(default=""),
+    windows_version: str = Query(default=""),
+    windows_license: str = Query(default=""),
+    internet: str = Query(default=""),
+    carbon_black_installed: str = Query(default=""),
+    anyconnect_installed: str = Query(default=""),
+    rdp_remote_ips: str = Query(default=""),
+    reported_at: str = Query(default=""),
+):
+    require_permission(request, "exportar")
+    filters = {
+        "estado_alerta": estado_alerta,
+        "last_action": last_action,
+        "dni": dni,
+        "nombre_completo": nombre_completo,
+        "hostname": hostname,
+        "processor": processor,
+        "memory_ram": memory_ram,
+        "disk": disk,
+        "windows_version": windows_version,
+        "windows_license": windows_license,
+        "internet": internet,
+        "carbon_black_installed": carbon_black_installed,
+        "anyconnect_installed": anyconnect_installed,
+        "rdp_remote_ips": rdp_remote_ips,
+        "reported_at": reported_at,
+    }
+    df = smart_search_applications(ensure_applications_loaded(), q)
+    df = filter_applications_by_columns(df, filters)
+    export_df = build_applications_export(df)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name="aplicaciones_tto")
+    output.seek(0)
+
+    headers = {"Content-Disposition": 'attachment; filename="aplicaciones_tto_filtrado.xlsx"'}
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @app.get("/vms")
