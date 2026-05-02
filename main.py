@@ -578,11 +578,13 @@ def load_persisted_users() -> dict:
     return loaded
 
 
-def persist_dynamic_users() -> None:
+def persist_dynamic_users() -> bool:
     try:
         save_json_file(USERS_STORE_PATH, USERS)
+        return True
     except Exception as exc:
         print(f"[WARN] No se pudo persistir usuarios en {USERS_STORE_PATH}: {exc}", flush=True)
+        return False
 
 
 def get_env_user(username: str) -> dict | None:
@@ -927,6 +929,8 @@ def data_dir_status() -> dict:
     return {
         "path": str(DATA_DIR),
         "writable": writable,
+        "users_store_exists": USERS_STORE_PATH.exists(),
+        "users_store_path": str(USERS_STORE_PATH),
         "infra_excel_exists": INFRA_STORE_PATH.exists(),
         "infra_json_exists": INFRA_JSON_STORE_PATH.exists(),
     }
@@ -978,21 +982,21 @@ def filter_dashboard_rows(
         parts = re.split(r"\|\||,", value)
         return [normalize_text(part) for part in parts if normalize_text(part)]
 
-    filters = {
+    multi_filters = {
         "area": area,
         "centro_costo": centro_costo,
-        "dni": dni,
+        "cargo2_ab": cargo2_ab,
         "so_version": sistema_operativo,
         "estado_cruce": estado,
     }
-    for field, value in filters.items():
-        normalized = normalize_text(value)
-        if normalized and normalized != "todos" and field in result:
-            result = result[result[field].map(normalize_text) == normalized]
+    for field, value in multi_filters.items():
+        selected_values = split_multi_filter(value)
+        if selected_values and "todos" not in selected_values and field in result:
+            result = result[result[field].map(normalize_text).isin(selected_values)]
 
-    cargo_filters = split_multi_filter(cargo2_ab)
-    if cargo_filters and "cargo2_ab" in result:
-        result = result[result["cargo2_ab"].map(normalize_text).isin(cargo_filters)]
+    normalized_dni = normalize_text(dni)
+    if normalized_dni and "dni" in result:
+        result = result[result["dni"].map(normalize_text) == normalized_dni]
 
     normalized_query = normalize_text(q)
     if normalized_query:
@@ -1761,9 +1765,8 @@ async def login(request: Request, response: Response):
 
     user = USERS.get(username)
     env_user = get_env_user(username)
-    if (not user or not verify_password(user["password"], password)) and env_user and verify_password(env_user["password"], password):
-        merged_user = user.copy() if user else {}
-        merged_user.update(env_user)
+    if not user and env_user and verify_password(env_user["password"], password):
+        merged_user = env_user.copy()
         merged_user["force_password_change"] = True
         merged_user["password_policy_version"] = int(merged_user.get("password_policy_version", 0) or 0)
         USERS[username] = merged_user
@@ -2077,7 +2080,11 @@ async def change_password(request: Request):
     stored_user["force_password_change"] = False
     stored_user["password_policy_version"] = PASSWORD_POLICY_VERSION
     USERS[user["username"]] = stored_user
-    persist_dynamic_users()
+    if not persist_dynamic_users():
+        raise HTTPException(
+            status_code=500,
+            detail="La contrasena cambio en memoria, pero no se pudo guardar en DATA_DIR. Revisa el disco persistente de Render.",
+        )
     audit_event("password_changed", request, user["username"])
     return {"ok": True, "message": "Contrasena actualizada correctamente."}
 
