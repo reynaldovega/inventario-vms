@@ -1053,7 +1053,7 @@
     <div class="tab-pane hidden" id="tabApps">
       <section class="hero">
         <h1>Aplicaciones TTO</h1>
-        <p class="subtitle">Inventario recibido desde el instalador de teletrabajo: usuario, equipo, hardware, licencia de Windows, velocidad de internet y estado de Carbon Black / AnyConnect.</p>
+        <p class="subtitle">Inventario recibido desde el instalador de teletrabajo: usuario, equipo, hardware, licencia de Windows, prueba de internet y estado de Carbon Black / AnyConnect.</p>
         <div class="toolbar">
           <div class="panel">
             <h2>Busqueda inteligente</h2>
@@ -2096,7 +2096,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.disk || "-"}</td>
           <td>${item.windows_version || "-"}</td>
           <td>${item.windows_license || "-"}</td>
-          <td>${item.internet_speed || "-"}</td>
+          <td>${formatInternetReport(item)}</td>
           <td>${item.carbon_black_installed || "-"}</td>
           <td>${item.anyconnect_installed || "-"}</td>
           <td>${item.rdp_remote_ips || "-"}</td>
@@ -2104,6 +2104,18 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `).join("");
       table.innerHTML = head + rows;
+    }
+
+    function formatInternetReport(item) {
+      const download = item.internet_download_mbps || item.download_mbps || item.speedtest_download_mbps;
+      const upload = item.internet_upload_mbps || item.upload_mbps || item.speedtest_upload_mbps;
+      const ping = item.internet_ping_ms || item.ping_ms || item.speedtest_ping_ms;
+      const parts = [];
+      if (download) parts.push(`Bajada ${download} Mbps`);
+      if (upload) parts.push(`Subida ${upload} Mbps`);
+      if (ping) parts.push(`Ping ${ping} ms`);
+      if (parts.length) return parts.join(" | ");
+      return item.internet_speed ? `Red local: ${item.internet_speed}` : "-";
     }
 
     async function cargarAplicaciones() {
@@ -2497,7 +2509,8 @@ document.addEventListener("DOMContentLoaded", () => {
             : `Invitacion enviada a ${payload.email}${roleNote}.`);
         } else {
           const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
-          setInviteStatus(`Correo no disponible. Copia y envia este enlace a ${payload.email}${roleNote}.`, payload.link);
+          const errorNote = payload.mail_error ? ` Error SMTP: ${payload.mail_error}` : "";
+          setInviteStatus(`Correo no disponible. Copia y envia este enlace a ${payload.email}${roleNote}.${errorNote}`, payload.link);
         }
       } catch (error) {
         status.textContent = error.message;
