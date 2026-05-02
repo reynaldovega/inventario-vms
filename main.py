@@ -29,6 +29,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "object-src 'none'; "
+        "img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "upgrade-insecure-requests"
+    )
+    if is_secure_cookie_enabled() or request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_EXCEL = next(BASE_DIR.glob("*.xlsx"), None)
 SESSION_COOKIE = "inventario_vms_session"
@@ -1923,7 +1949,10 @@ async def create_invitation(request: Request):
             )
         except Exception as exc:
             mail_sent = False
-            print(f"[ERROR] No se pudo enviar enlace de acceso a {email}: {type(exc).__name__}: {exc}", flush=True)
+            mail_error = f"{type(exc).__name__}: {exc}"
+            print(f"[ERROR] No se pudo enviar enlace de acceso a {email}: {mail_error}", flush=True)
+        else:
+            mail_error = ""
         return {
             "ok": True,
             "existing": True,
@@ -1933,6 +1962,7 @@ async def create_invitation(request: Request):
             "role_updated": role_updated,
             "link": link,
             "mail_sent": mail_sent,
+            "mail_error": mail_error if SHOW_MAIL_ERROR_DETAILS else "",
         }
 
     token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
@@ -1960,8 +1990,11 @@ async def create_invitation(request: Request):
         )
     except Exception as exc:
         mail_sent = False
-        print(f"[ERROR] No se pudo enviar invitacion a {email}: {type(exc).__name__}: {exc}", flush=True)
-    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": mail_sent}
+        mail_error = f"{type(exc).__name__}: {exc}"
+        print(f"[ERROR] No se pudo enviar invitacion a {email}: {mail_error}", flush=True)
+    else:
+        mail_error = ""
+    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": mail_sent, "mail_error": mail_error if SHOW_MAIL_ERROR_DETAILS else ""}
 
 
 @app.post("/accept-invite")
