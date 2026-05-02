@@ -367,6 +367,17 @@
       box-shadow: 0 16px 35px rgba(30, 111, 92, 0.12);
     }
 
+    .dashboard-exportable {
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .dashboard-exportable:hover {
+      transform: translateY(-2px);
+      border-color: rgba(30, 111, 92, 0.5);
+      box-shadow: 0 16px 35px rgba(30, 111, 92, 0.12);
+    }
+
     .card span {
       display: block;
       font-size: 0.82rem;
@@ -998,7 +1009,7 @@
     <div class="tab-pane hidden" id="tabDashboard">
       <section class="hero">
         <h1>Dashboard</h1>
-        <p class="subtitle">Cruce entre infraestructura e Inventario VMS. Una VM queda asignada cuando la IP existe en la base principal con DNI, campana, subservicio o ticket; queda libre cuando esa IP no tiene evidencia de asignacion.</p>
+        <p class="subtitle">Cruce entre infraestructura e Inventario VMS. Una VM queda asignada cuando su IP existe en la columna A de la base principal de agentes TTO; queda libre cuando esa IP no aparece en esa columna.</p>
         <div class="toolbar">
           <div class="panel">
             <h2>Cargar Excel infraestructura</h2>
@@ -1013,9 +1024,9 @@
           <div class="panel">
             <h2>Resumen de VM</h2>
             <div class="cards" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-              <div class="card"><span>Entregadas infra</span><strong id="infraTotal">0</strong></div>
-              <div class="card"><span>Asignadas</span><strong id="infraAsignadas">0</strong></div>
-              <div class="card"><span>Libres</span><strong id="infraLibres">0</strong></div>
+              <div class="card" data-dashboard-export="total_infra"><span>Entregadas infra</span><strong id="infraTotal">0</strong></div>
+              <div class="card" data-dashboard-export="asignadas"><span>Asignadas</span><strong id="infraAsignadas">0</strong></div>
+              <div class="card" data-dashboard-export="libres"><span>Libres</span><strong id="infraLibres">0</strong></div>
             </div>
             <div class="file-meta">Filtrado actual: <strong id="infraFiltrado">0</strong></div>
           </div>
@@ -1046,50 +1057,50 @@
         </div>
       </section>
       <section class="analytics-grid">
-        <div class="chart-panel">
+        <div class="chart-panel" data-dashboard-export="vm_estado">
           <h3>Comparativa de VM</h3>
           <div id="chartVmEstado"></div>
         </div>
-        <div class="chart-panel">
+        <div class="chart-panel" data-dashboard-export="por_so">
           <h3>Sistema operativo</h3>
           <div id="chartVmSo"></div>
         </div>
-        <div class="chart-panel wide">
+        <div class="chart-panel wide" data-dashboard-export="por_centro_costo">
           <h3>Equipos asignados por subservicio</h3>
           <div id="chartVmServicios"></div>
         </div>
-        <div class="chart-panel wide">
+        <div class="chart-panel wide" data-dashboard-export="por_cargo2_ab">
           <h3>Equipos asignados por CARGO2 AB</h3>
           <div id="chartVmCargo2"></div>
         </div>
       </section>
       <section class="grid">
-        <div class="panel">
+        <div class="panel" data-dashboard-export="por_area">
           <h3>Asignadas por area</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashAreas"></table></div>
         </div>
-        <div class="panel">
+        <div class="panel" data-dashboard-export="por_centro_costo">
           <h3>Asignadas por subservicio</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashCentros"></table></div>
         </div>
       </section>
       <section class="grid">
-        <div class="panel">
+        <div class="panel" data-dashboard-export="por_cargo2_ab">
           <h3>Asignadas por CARGO2 AB</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashCargo2"></table></div>
         </div>
-        <div class="panel">
+        <div class="panel" data-dashboard-export="por_so">
           <h3>Sistemas operativos</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashSo"></table></div>
         </div>
       </section>
       <section class="grid">
-        <div class="panel">
+        <div class="panel" data-dashboard-export="libres">
           <h3>Libres</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashLibres"></table></div>
         </div>
       </section>
-      <section class="panel" style="margin-top:22px;">
+      <section class="panel" style="margin-top:22px;" data-dashboard-export="asignadas">
         <h3>Asignadas IP + DNI</h3>
         <div class="table-wrap"><table id="tablaDashAsignadas"></table></div>
       </section>
@@ -1445,6 +1456,10 @@
           card.classList.remove("exportable");
           card.removeAttribute("title");
         });
+        document.querySelectorAll("[data-dashboard-export]").forEach((panel) => {
+          panel.classList.remove("dashboard-exportable");
+          panel.removeAttribute("title");
+        });
         document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
         document.querySelectorAll(".auth-only").forEach((item) => item.classList.add("hidden"));
         showTab("inventario");
@@ -1462,6 +1477,7 @@
         logoutButton.classList.remove("hidden");
         exportButton.classList.add("hidden");
         document.querySelectorAll("[data-export-segment]").forEach((card) => card.classList.remove("exportable"));
+        document.querySelectorAll("[data-dashboard-export]").forEach((panel) => panel.classList.remove("dashboard-exportable"));
         document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
         document.querySelectorAll(".auth-only").forEach((item) => item.classList.remove("hidden"));
         showTab("password");
@@ -1481,6 +1497,14 @@
           card.setAttribute("title", "Haz clic para descargar este grupo en Excel");
         } else {
           card.removeAttribute("title");
+        }
+      });
+      document.querySelectorAll("[data-dashboard-export]").forEach((panel) => {
+        panel.classList.toggle("dashboard-exportable", canExport);
+        if (canExport) {
+          panel.setAttribute("title", "Haz clic para exportar este recuadro a Excel");
+        } else {
+          panel.removeAttribute("title");
         }
       });
       document.querySelectorAll(".admin-export").forEach((button) => {
@@ -2181,15 +2205,17 @@ document.addEventListener("DOMContentLoaded", () => {
       cargarDashboardVms();
     }
 
-    async function descargarDashboardVms() {
+    async function descargarDashboardVms(segment = "filtrado") {
       if (!currentUser || !hasPermission("exportar")) {
         alert("Solo el administrador puede descargar este Excel.");
         return;
       }
+      const params = dashboardFilterParams();
+      params.set("segment", segment);
       setLoading(true);
       let response;
       try {
-        response = await fetch(`${apiBase}/export-dashboard-vms?${dashboardFilterParams().toString()}`, {
+        response = await fetch(`${apiBase}/export-dashboard-vms?${params.toString()}`, {
           credentials: "same-origin",
         });
       } finally {
@@ -2203,7 +2229,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "dashboard_vms_filtrado.xlsx";
+      link.download = `dashboard_vms_${segment}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -2537,6 +2563,13 @@ document.querySelectorAll("[data-export-segment]").forEach((card) => {
 document.querySelectorAll("[data-export-button]").forEach((button) => {
   button.addEventListener("click", () => {
     descargarSegmento(button.dataset.exportButton);
+  });
+});
+
+document.querySelectorAll("[data-dashboard-export]").forEach((panel) => {
+  panel.addEventListener("click", () => {
+    if (!panel.classList.contains("dashboard-exportable")) return;
+    descargarDashboardVms(panel.dataset.dashboardExport);
   });
 });
 

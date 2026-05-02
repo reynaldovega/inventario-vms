@@ -1005,7 +1005,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     if infra.empty:
         return pd.DataFrame(), infra_file_name, 0
 
-    assigned = inventory[has_valid_ip(inventory["ip"]) & has_assignment_evidence(inventory)].copy()
+    assigned = inventory[has_valid_ip(inventory["ip"])].copy()
     assigned["ip_norm"] = assigned["ip"].map(normalize_text)
     assigned = assigned.drop_duplicates(subset=["ip_norm"], keep="first")
     assigned["_assigned_evidence"] = "SI"
@@ -1504,6 +1504,55 @@ def build_summary_export(records: list[dict], ordered_columns: list[str]) -> pd.
         return pd.DataFrame(columns=ordered_columns)
     df = pd.DataFrame(records)
     return df.reindex(columns=ordered_columns, fill_value="")
+
+
+def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "estado_cruce",
+        "ip",
+        "dni",
+        "nombre_completo",
+        "area",
+        "centro_costo",
+        "cargo2_ab",
+        "hostname_infra",
+        "hostname",
+        "ticket",
+        "sistema_operativo",
+        "so_version",
+        "fecha_entrega",
+    ]
+    return df[[column for column in columns if column in df.columns]].copy()
+
+
+def get_vms_dashboard_export_dataframe(filtered: pd.DataFrame, segment: str) -> pd.DataFrame:
+    normalized_segment = normalize_text(segment).replace(" ", "_")
+    assigned_rows = filtered[filtered["estado_cruce"] == "ASIGNADA"].copy() if "estado_cruce" in filtered.columns else pd.DataFrame()
+    free_rows = filtered[filtered["estado_cruce"] == "LIBRE"].copy() if "estado_cruce" in filtered.columns else pd.DataFrame()
+
+    if normalized_segment in {"", "filtrado", "total_infra"}:
+        return build_vms_detail_export(filtered)
+    if normalized_segment == "asignadas":
+        return build_vms_detail_export(assigned_rows)
+    if normalized_segment == "libres":
+        return build_vms_detail_export(free_rows)
+    if normalized_segment == "vm_estado":
+        records = summarize_group(filtered, "estado_cruce", limit=500) if "estado_cruce" in filtered.columns else []
+        return build_summary_export(records, ["estado_cruce", "cantidad"])
+    if normalized_segment == "por_area":
+        records = summarize_group(assigned_rows, "area", limit=500) if "area" in assigned_rows.columns else []
+        return build_summary_export(records, ["area", "cantidad"])
+    if normalized_segment == "por_centro_costo":
+        records = summarize_group(assigned_rows, "centro_costo", limit=500) if "centro_costo" in assigned_rows.columns else []
+        return build_summary_export(records, ["centro_costo", "cantidad"])
+    if normalized_segment == "por_cargo2_ab":
+        records = summarize_group(assigned_rows, "cargo2_ab", limit=500) if "cargo2_ab" in assigned_rows.columns else []
+        return build_summary_export(records, ["cargo2_ab", "cantidad"])
+    if normalized_segment == "por_so":
+        records = summarize_group(filtered, "so_version", limit=500) if "so_version" in filtered.columns else []
+        return build_summary_export(records, ["so_version", "cantidad"])
+
+    return build_vms_detail_export(filtered)
 
 
 def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
@@ -2088,37 +2137,23 @@ def export_dashboard_vms(
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
     estado: str = Query(default=""),
+    segment: str = Query(default="filtrado"),
 ):
     require_permission(request, "exportar")
     merged, _, _ = build_vms_dashboard_rows()
     filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
-    columns = [
-        "estado_cruce",
-        "ip",
-        "dni",
-        "nombre_completo",
-        "area",
-        "centro_costo",
-        "cargo2_ab",
-        "hostname_infra",
-        "hostname",
-        "ticket",
-        "sistema_operativo",
-        "so_version",
-        "fecha_entrega",
-    ]
-    export_df = filtered[[column for column in columns if column in filtered.columns]].copy()
-    if "estado_cruce" not in export_df.columns:
-        export_df["estado_cruce"] = ""
+    export_df = get_vms_dashboard_export_dataframe(filtered, segment)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name="dashboard_filtrado")
-        export_df[export_df["estado_cruce"] == "ASIGNADA"].to_excel(writer, index=False, sheet_name="asignadas")
-        export_df[export_df["estado_cruce"] == "LIBRE"].to_excel(writer, index=False, sheet_name="libres")
+        if "estado_cruce" in export_df.columns:
+            export_df[export_df["estado_cruce"] == "ASIGNADA"].to_excel(writer, index=False, sheet_name="asignadas")
+            export_df[export_df["estado_cruce"] == "LIBRE"].to_excel(writer, index=False, sheet_name="libres")
     output.seek(0)
 
-    headers = {"Content-Disposition": 'attachment; filename="dashboard_vms_filtrado.xlsx"'}
+    safe_segment = re.sub(r"[^a-z0-9_]+", "_", normalize_text(segment).replace(" ", "_")) or "filtrado"
+    headers = {"Content-Disposition": f'attachment; filename="dashboard_vms_{safe_segment}.xlsx"'}
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
