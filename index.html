@@ -555,80 +555,6 @@
       width: 100%;
     }
 
-    .multi-select {
-      position: relative;
-      min-width: 0;
-    }
-
-    .multi-select-toggle {
-      width: 100%;
-      background: white;
-      color: var(--text);
-      border-color: var(--line);
-      text-align: left;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .multi-select-toggle::after {
-      content: "⌄";
-      color: var(--muted);
-      font-size: 1rem;
-    }
-
-    .multi-select-menu {
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      right: 0;
-      z-index: 20;
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      box-shadow: var(--shadow);
-      padding: 10px;
-    }
-
-    .multi-select-menu input {
-      width: 100%;
-      margin-bottom: 8px;
-    }
-
-    .multi-select-options {
-      max-height: 220px;
-      overflow: auto;
-      display: grid;
-      gap: 4px;
-    }
-
-    .multi-select-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 8px;
-    }
-
-    .multi-select-option {
-      display: flex;
-      gap: 8px;
-      align-items: flex-start;
-      padding: 7px 6px;
-      border-radius: 8px;
-      font-size: 0.88rem;
-      cursor: pointer;
-    }
-
-    .multi-select-option:hover {
-      background: rgba(30, 111, 92, 0.08);
-    }
-
-    .multi-select-option input {
-      width: auto;
-      margin-top: 2px;
-    }
-
     .search-insights {
       margin-top: 22px;
     }
@@ -1117,62 +1043,12 @@
         </div>
         <div class="inline-form dashboard-filters">
           <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
-          <div class="multi-select" id="dashAreaFilter" data-filter-key="area">
-            <button class="multi-select-toggle" id="dashAreaToggle" onclick="toggleDashboardMultiFilter('area')" type="button">Campana</button>
-            <div class="multi-select-menu hidden" id="dashAreaMenu">
-              <input type="text" id="dashAreaSearch" placeholder="Buscar campana">
-              <div class="multi-select-options" id="dashAreaOptions"></div>
-              <div class="multi-select-actions">
-                <button type="button" onclick="applyDashboardMultiFilter('area')">Buscar</button>
-                <button class="secondary" type="button" onclick="clearDashboardMultiFilter('area')">Limpiar</button>
-              </div>
-            </div>
-          </div>
-          <div class="multi-select" id="dashCentroFilter" data-filter-key="centro">
-            <button class="multi-select-toggle" id="dashCentroToggle" onclick="toggleDashboardMultiFilter('centro')" type="button">Subservicio</button>
-            <div class="multi-select-menu hidden" id="dashCentroMenu">
-              <input type="text" id="dashCentroSearch" placeholder="Buscar subservicio">
-              <div class="multi-select-options" id="dashCentroOptions"></div>
-              <div class="multi-select-actions">
-                <button type="button" onclick="applyDashboardMultiFilter('centro')">Buscar</button>
-                <button class="secondary" type="button" onclick="clearDashboardMultiFilter('centro')">Limpiar</button>
-              </div>
-            </div>
-          </div>
-          <div class="multi-select" id="dashCargo2Filter" data-filter-key="cargo">
-            <button class="multi-select-toggle" id="dashCargoToggle" onclick="toggleDashboardMultiFilter('cargo')" type="button">Cargo actual</button>
-            <div class="multi-select-menu hidden" id="dashCargoMenu">
-              <input type="text" id="dashCargoSearch" placeholder="Buscar cargo">
-              <div class="multi-select-options" id="dashCargoOptions"></div>
-              <div class="multi-select-actions">
-                <button type="button" onclick="applyDashboardMultiFilter('cargo')">Buscar</button>
-                <button class="secondary" type="button" onclick="clearDashboardMultiFilter('cargo')">Limpiar</button>
-              </div>
-            </div>
-          </div>
+          <select id="dashAreaFilter"><option value="">Campana</option></select>
+          <select id="dashCentroFilter"><option value="">Subservicio</option></select>
+          <select id="dashCargo2Filter"><option value="">Cargo actual</option></select>
           <input type="text" id="dashDniFilter" placeholder="DNI">
-          <div class="multi-select" id="dashSoFilter" data-filter-key="so">
-            <button class="multi-select-toggle" id="dashSoToggle" onclick="toggleDashboardMultiFilter('so')" type="button">Sistema operativo</button>
-            <div class="multi-select-menu hidden" id="dashSoMenu">
-              <input type="text" id="dashSoSearch" placeholder="Buscar sistema">
-              <div class="multi-select-options" id="dashSoOptions"></div>
-              <div class="multi-select-actions">
-                <button type="button" onclick="applyDashboardMultiFilter('so')">Buscar</button>
-                <button class="secondary" type="button" onclick="clearDashboardMultiFilter('so')">Limpiar</button>
-              </div>
-            </div>
-          </div>
-          <div class="multi-select" id="dashEstadoFilter" data-filter-key="estado">
-            <button class="multi-select-toggle" id="dashEstadoToggle" onclick="toggleDashboardMultiFilter('estado')" type="button">Estado</button>
-            <div class="multi-select-menu hidden" id="dashEstadoMenu">
-              <input type="text" id="dashEstadoSearch" placeholder="Buscar estado">
-              <div class="multi-select-options" id="dashEstadoOptions"></div>
-              <div class="multi-select-actions">
-                <button type="button" onclick="applyDashboardMultiFilter('estado')">Buscar</button>
-                <button class="secondary" type="button" onclick="clearDashboardMultiFilter('estado')">Limpiar</button>
-              </div>
-            </div>
-          </div>
+          <select id="dashSoFilter"><option value="">Sistema operativo</option></select>
+          <select id="dashEstadoFilter"><option value="">Estado</option></select>
           <button onclick="cargarDashboardVms()" type="button">Filtrar</button>
           <button class="secondary" onclick="limpiarDashboardVms()" type="button">Limpiar</button>
         </div>
@@ -2140,12 +2016,12 @@ document.addEventListener("DOMContentLoaded", () => {
     function dashboardFilterParams() {
       return new URLSearchParams({
         q: document.getElementById("dashQuery").value.trim(),
-        area: getDashboardMultiFilterValues("area").join("||"),
-        centro_costo: getDashboardMultiFilterValues("centro").join("||"),
-        cargo2_ab: getDashboardMultiFilterValues("cargo").join("||"),
+        area: document.getElementById("dashAreaFilter").value,
+        centro_costo: document.getElementById("dashCentroFilter").value,
+        cargo2_ab: document.getElementById("dashCargo2Filter").value,
         dni: document.getElementById("dashDniFilter").value.trim(),
-        sistema_operativo: getDashboardMultiFilterValues("so").join("||"),
-        estado: getDashboardMultiFilterValues("estado").join("||"),
+        sistema_operativo: document.getElementById("dashSoFilter").value,
+        estado: document.getElementById("dashEstadoFilter").value,
       });
     }
 
@@ -2157,112 +2033,33 @@ document.addEventListener("DOMContentLoaded", () => {
         .trim();
     }
 
-    function escapeHtml(value) {
-      return String(value || "").replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      }[char]));
-    }
-
-    const dashboardMultiFilters = {
-      area: { label: "Campana", values: [], selected: new Set(), toggle: "dashAreaToggle", menu: "dashAreaMenu", search: "dashAreaSearch", options: "dashAreaOptions" },
-      centro: { label: "Subservicio", values: [], selected: new Set(), toggle: "dashCentroToggle", menu: "dashCentroMenu", search: "dashCentroSearch", options: "dashCentroOptions" },
-      cargo: { label: "Cargo actual", values: [], selected: new Set(), toggle: "dashCargoToggle", menu: "dashCargoMenu", search: "dashCargoSearch", options: "dashCargoOptions" },
-      so: { label: "Sistema operativo", values: [], selected: new Set(), toggle: "dashSoToggle", menu: "dashSoMenu", search: "dashSoSearch", options: "dashSoOptions" },
-      estado: { label: "Estado", values: [], selected: new Set(), toggle: "dashEstadoToggle", menu: "dashEstadoMenu", search: "dashEstadoSearch", options: "dashEstadoOptions" },
-    };
-
-    function getDashboardMultiFilterValues(key) {
-      return [...(dashboardMultiFilters[key]?.selected || new Set())];
-    }
-
-    function updateDashboardMultiFilterLabel(key) {
-      const config = dashboardMultiFilters[key];
-      const selected = getDashboardMultiFilterValues(key);
-      const toggle = document.getElementById(config.toggle);
-      toggle.textContent = config.label;
-      toggle.title = selected.length ? selected.join(", ") : config.label;
-    }
-
-    function renderDashboardMultiFilterOptions(key, search = "") {
-      const config = dashboardMultiFilters[key];
-      const normalizedSearch = normalizeText(search);
-      const options = document.getElementById(config.options);
-      const values = config.values.filter(value => !normalizedSearch || normalizeText(value).includes(normalizedSearch));
-      options.innerHTML = values.length
-        ? values.map(value => `
-            <label class="multi-select-option">
-              <input type="checkbox" value="${escapeHtml(value)}" ${config.selected.has(value) ? "checked" : ""}>
-              <span>${escapeHtml(value)}</span>
-            </label>
-          `).join("")
-        : `<div class="empty">Sin opciones relacionadas.</div>`;
-      options.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
-        checkbox.addEventListener("change", () => {
-          if (checkbox.checked) {
-            config.selected.add(checkbox.value);
-          } else {
-            config.selected.delete(checkbox.value);
-          }
-          updateDashboardMultiFilterLabel(key);
-          cargarDashboardVms();
-        });
-      });
-      updateDashboardMultiFilterLabel(key);
-    }
-
-    function setDashboardMultiFilterOptions(key, values) {
-      const config = dashboardMultiFilters[key];
-      config.values = values || [];
-      config.selected = new Set([...config.selected].filter(value => config.values.includes(value)));
-      renderDashboardMultiFilterOptions(key, document.getElementById(config.search).value);
-      updateDashboardMultiFilterLabel(key);
-    }
-
-    function toggleDashboardMultiFilter(key) {
-      const config = dashboardMultiFilters[key];
-      Object.entries(dashboardMultiFilters).forEach(([otherKey, otherConfig]) => {
-        if (otherKey !== key) document.getElementById(otherConfig.menu).classList.add("hidden");
-      });
-      document.getElementById(config.menu).classList.toggle("hidden");
-      document.getElementById(config.search).focus();
-    }
-
-    function applyDashboardMultiFilter(key) {
-      document.getElementById(dashboardMultiFilters[key].menu).classList.add("hidden");
-      cargarDashboardVms();
-    }
-
-    function clearDashboardMultiFilter(key) {
-      const config = dashboardMultiFilters[key];
-      config.selected.clear();
-      document.getElementById(config.search).value = "";
-      renderDashboardMultiFilterOptions(key, "");
-      updateDashboardMultiFilterLabel(key);
-      cargarDashboardVms();
+    function fillSelectOptions(id, label, values) {
+      const select = document.getElementById(id);
+      const current = select.value;
+      select.innerHTML = `<option value="">${label}</option>` + (values || [])
+        .map(value => `<option value="${value}">${value}</option>`)
+        .join("");
+      if ([...select.options].some(option => option.value === current)) {
+        select.value = current;
+      }
     }
 
     function updateDashboardFilterOptions(options) {
-      setDashboardMultiFilterOptions("area", options.areas || []);
-      setDashboardMultiFilterOptions("centro", options.centros_costo || []);
-      setDashboardMultiFilterOptions("cargo", options.cargos2_ab || []);
-      setDashboardMultiFilterOptions("so", options.sistemas_operativos || []);
-      setDashboardMultiFilterOptions("estado", options.estados || []);
+      fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
+      fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
+      fillSelectOptions("dashCargo2Filter", "Cargo actual", options.cargos2_ab || []);
+      fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
+      fillSelectOptions("dashEstadoFilter", "Estado", options.estados || []);
     }
 
     function resetDashboardFilterControls() {
       document.getElementById("dashQuery").value = "";
-      Object.entries(dashboardMultiFilters).forEach(([key, config]) => {
-        config.selected.clear();
-        document.getElementById(config.search).value = "";
-        renderDashboardMultiFilterOptions(key, "");
-        document.getElementById(config.menu).classList.add("hidden");
-        updateDashboardMultiFilterLabel(key);
-      });
+      document.getElementById("dashAreaFilter").value = "";
+      document.getElementById("dashCentroFilter").value = "";
+      document.getElementById("dashCargo2Filter").value = "";
       document.getElementById("dashDniFilter").value = "";
+      document.getElementById("dashSoFilter").value = "";
+      document.getElementById("dashEstadoFilter").value = "";
     }
 
     function renderDonutChart(id, items) {
@@ -2687,7 +2484,10 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
         });
         await refreshDashboard();
         await buscar();
-        alert(`${response.mensaje}. Registros procesados: ${response.registros}`);
+        alert(response.persisted
+          ? `${response.mensaje}. Registros procesados: ${response.registros}. Quedo guardada.`
+          : `${response.mensaje}. Registros procesados: ${response.registros}. Advertencia: no se pudo guardar de forma persistente en el servidor.`
+        );
       } catch (error) {
         console.error(error);
         alert(error.message || "No se pudo subir el archivo.");
@@ -2774,19 +2574,8 @@ function limpiar() {
       await buscar();
     });
 
-    Object.entries(dashboardMultiFilters).forEach(([key, config]) => {
-      document.getElementById(config.search).addEventListener("input", (event) => {
-        renderDashboardMultiFilterOptions(key, event.target.value);
-      });
-    });
-
-    document.addEventListener("click", (event) => {
-      Object.entries(dashboardMultiFilters).forEach(([key, config]) => {
-        const filter = document.querySelector(`[data-filter-key="${key}"]`);
-        if (filter && !filter.contains(event.target)) {
-          document.getElementById(config.menu).classList.add("hidden");
-        }
-      });
+    ["dashAreaFilter", "dashCentroFilter", "dashCargo2Filter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
     });
 
     ["dashQuery", "dashDniFilter"].forEach((id) => {

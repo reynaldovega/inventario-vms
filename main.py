@@ -74,6 +74,8 @@ DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 USERS_STORE_PATH = DATA_DIR / "users.json"
 INVITES_STORE_PATH = DATA_DIR / "invites.json"
 APPLICATIONS_STORE_PATH = DATA_DIR / "applications_tto.json"
+MAIN_EXCEL_STORE_PATH = DATA_DIR / "inventario_vms.xlsx"
+MAIN_META_PATH = DATA_DIR / "inventario_vms_meta.json"
 INFRA_STORE_PATH = DATA_DIR / "infra_vms.xlsx"
 INFRA_META_PATH = DATA_DIR / "infra_vms_meta.json"
 INFRA_JSON_STORE_PATH = DATA_DIR / "infra_vms.json"
@@ -886,6 +888,25 @@ def load_dataframe_from_excel(file_source) -> pd.DataFrame:
     return procesar_df(df)
 
 
+def save_main_upload(file_name: str, content: bytes) -> bool:
+    try:
+        ensure_data_dir()
+        MAIN_EXCEL_STORE_PATH.write_bytes(content)
+        save_json_file(MAIN_META_PATH, {"archivo": file_name, "updated_at": now_ts()})
+        return True
+    except Exception as exc:
+        print(f"[ERROR] No se pudo guardar Excel principal: {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
+def load_main_dataframe_from_store() -> tuple[pd.DataFrame, str]:
+    if MAIN_EXCEL_STORE_PATH.exists():
+        meta = load_json_file(MAIN_META_PATH, {})
+        file_name = clean_value(meta.get("archivo", "")) or MAIN_EXCEL_STORE_PATH.name
+        return load_dataframe_from_excel(MAIN_EXCEL_STORE_PATH), file_name
+    return pd.DataFrame(), ""
+
+
 def load_infra_dataframe_from_excel(file_source) -> pd.DataFrame:
     raw = pd.read_excel(file_source, dtype=str).fillna("")
     raw.columns = [clean_value(col) for col in raw.columns]
@@ -957,6 +978,8 @@ def data_dir_status() -> dict:
         "writable": writable,
         "users_store_exists": USERS_STORE_PATH.exists(),
         "users_store_path": str(USERS_STORE_PATH),
+        "main_excel_exists": MAIN_EXCEL_STORE_PATH.exists(),
+        "main_excel_path": str(MAIN_EXCEL_STORE_PATH),
         "infra_excel_exists": INFRA_STORE_PATH.exists(),
         "infra_json_exists": INFRA_JSON_STORE_PATH.exists(),
     }
@@ -1174,12 +1197,19 @@ def smart_search_applications(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
 
 def ensure_data_loaded() -> pd.DataFrame:
-    global df_global
+    global df_global, current_file_name
     if not df_global.empty:
+        return df_global
+
+    stored_df, stored_file_name = load_main_dataframe_from_store()
+    if not stored_df.empty:
+        df_global = stored_df
+        current_file_name = stored_file_name
         return df_global
 
     if DEFAULT_EXCEL and DEFAULT_EXCEL.exists():
         df_global = load_dataframe_from_excel(DEFAULT_EXCEL)
+        current_file_name = DEFAULT_EXCEL.name
 
     return df_global
 
@@ -2158,7 +2188,8 @@ async def verify_otp(request: Request, response: Response):
 async def upload_file(request: Request, file: UploadFile = File(...)):
     require_permission(request, "cargar_excel")
     global df_global, current_file_name
-    loaded_df = load_dataframe_from_excel(file.file)
+    content = await file.read()
+    loaded_df = load_dataframe_from_excel(io.BytesIO(content))
     if loaded_df.empty:
         raise HTTPException(
             status_code=400,
@@ -2166,10 +2197,12 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         )
     df_global = loaded_df
     current_file_name = file.filename or "archivo_subido.xlsx"
+    persisted = save_main_upload(current_file_name, content)
     return {
         "mensaje": "Archivo cargado correctamente",
         "registros": int(len(df_global)),
         "archivo": current_file_name,
+        "persisted": persisted,
     }
 
 
