@@ -192,6 +192,18 @@
       min-height: 20px;
     }
 
+    .password-requirements {
+      margin: 10px 0 0;
+      padding-left: 20px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+
+    .password-requirements.hidden {
+      display: none;
+    }
+
     .topbar {
       margin-bottom: 16px;
       display: flex;
@@ -744,6 +756,10 @@
           <input type="password" id="loginPassword" placeholder="Contrasena">
           <button class="password-toggle" type="button" onclick="togglePasswordVisibility('loginPassword', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
         </div>
+        <div class="password-field hidden" id="loginNewPasswordField">
+          <input type="password" id="loginNewPassword" placeholder="Nueva contrasena">
+          <button class="password-toggle" type="button" onclick="togglePasswordVisibility('loginNewPassword', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
+        </div>
         <div class="password-field hidden" id="newPasswordConfirmField">
           <input type="password" id="newPasswordConfirm" placeholder="Repetir contrasena nueva">
           <button class="password-toggle" type="button" onclick="togglePasswordVisibility('newPasswordConfirm', this)" aria-label="Mostrar contrasena" title="Mostrar contrasena">&#128065;</button>
@@ -751,6 +767,13 @@
         <button id="authButton" onclick="login()">Ingresar</button>
         <button class="secondary" id="forgotButton" onclick="solicitarReset()" type="button">Restablecer contrasena</button>
       </div>
+      <ul class="password-requirements hidden" id="authPasswordRequirements">
+        <li>Minimo 10 caracteres.</li>
+        <li>Una letra mayuscula y una minuscula.</li>
+        <li>Un numero.</li>
+        <li>Un simbolo.</li>
+        <li>No usar datos evidentes del usuario.</li>
+      </ul>
       <div class="auth-status" id="authStatus"></div>
       <div class="auth-error" id="authError"></div>
     </div>
@@ -1113,7 +1136,13 @@
             </div>
             <button onclick="cambiarPassword()">Actualizar</button>
           </div>
-          <div class="helper">Politica: minimo 10 caracteres, una mayuscula, una minuscula, un numero y un simbolo.</div>
+          <ul class="password-requirements">
+            <li>Minimo 10 caracteres.</li>
+            <li>Una letra mayuscula y una minuscula.</li>
+            <li>Un numero.</li>
+            <li>Un simbolo.</li>
+            <li>No usar datos evidentes del usuario.</li>
+          </ul>
           <div class="helper" id="passwordStatus"></div>
         </div>
       </section>
@@ -1327,6 +1356,7 @@
       pendingUsername = "";
       document.getElementById("loginOtp").value = "";
       document.getElementById("loginPassword").value = "";
+      document.getElementById("loginNewPassword").value = "";
       document.getElementById("newPasswordConfirm").value = "";
       document.getElementById("authError").textContent = "";
       document.getElementById("authStatus").textContent = "";
@@ -1334,9 +1364,12 @@
       document.getElementById("authDescription").textContent =
         "Ingresa con tu usuario y contrasena para usar el inventario.";
       document.getElementById("loginUsername").classList.remove("hidden");
+      document.getElementById("loginPassword").placeholder = "Contrasena";
       setAuthPasswordVisible("loginPassword", true);
+      setAuthPasswordVisible("loginNewPassword", false);
       document.getElementById("loginOtp").classList.add("hidden");
       setAuthPasswordVisible("newPasswordConfirm", false);
+      document.getElementById("authPasswordRequirements").classList.add("hidden");
       document.getElementById("forgotButton").classList.remove("hidden");
       document.getElementById("authButton").textContent = "Ingresar";
     }
@@ -1351,10 +1384,31 @@
         : "Define una nueva contrasena para tu usuario.";
       document.getElementById("loginUsername").classList.add("hidden");
       document.getElementById("loginOtp").classList.add("hidden");
+      document.getElementById("loginPassword").placeholder = "Nueva contrasena";
       setAuthPasswordVisible("loginPassword", true);
+      setAuthPasswordVisible("loginNewPassword", false);
       setAuthPasswordVisible("newPasswordConfirm", true);
+      document.getElementById("authPasswordRequirements").classList.remove("hidden");
       document.getElementById("forgotButton").classList.add("hidden");
       document.getElementById("authButton").textContent = kind === "invite" ? "Crear cuenta" : "Actualizar contrasena";
+    }
+
+    function setForcedPasswordStep() {
+      authStep = "force_change";
+      document.getElementById("authError").textContent = "";
+      document.getElementById("authStatus").textContent = "Por seguridad, cambia la contrasena temporal antes de entrar.";
+      document.getElementById("authTitle").textContent = "Primer ingreso seguro";
+      document.getElementById("authDescription").textContent =
+        "Escribe tu contrasena actual y define una nueva clave. No volvera a pedirse hasta dentro de 3 meses.";
+      document.getElementById("loginUsername").classList.add("hidden");
+      document.getElementById("loginOtp").classList.add("hidden");
+      document.getElementById("loginPassword").placeholder = "Contrasena actual";
+      setAuthPasswordVisible("loginPassword", true);
+      setAuthPasswordVisible("loginNewPassword", true);
+      setAuthPasswordVisible("newPasswordConfirm", true);
+      document.getElementById("authPasswordRequirements").classList.remove("hidden");
+      document.getElementById("forgotButton").classList.add("hidden");
+      document.getElementById("authButton").textContent = "Cambiar y entrar";
     }
 
     function setOtpStep(username, emailHint) {
@@ -1533,6 +1587,8 @@
         resetAuthForm();
         applyRolePermissions();
         if (currentUser.password_must_change) {
+          setForcedPasswordStep();
+          document.getElementById("authOverlay").classList.remove("hidden");
           return;
         }
         await cargarInicial();
@@ -1574,6 +1630,29 @@
           return;
         }
 
+        if (authStep === "force_change") {
+          const currentPassword = document.getElementById("loginPassword").value;
+          const newPassword = document.getElementById("loginNewPassword").value;
+          const confirm = document.getElementById("newPasswordConfirm").value;
+          if (newPassword !== confirm) {
+            throw new Error("Las contrasenas nuevas no coinciden.");
+          }
+          const payload = await jsonFetch(`${apiBase}/change-password`, {
+            method: "POST",
+            body: JSON.stringify({
+              current_password: currentPassword,
+              new_password: newPassword,
+            }),
+          });
+          currentUser.password_must_change = false;
+          document.getElementById("authOverlay").classList.add("hidden");
+          resetAuthForm();
+          applyRolePermissions();
+          document.getElementById("passwordStatus").textContent = payload.message || "";
+          await cargarInicial();
+          return;
+        }
+
         if (authStep === "credentials") {
           const username = document.getElementById("loginUsername").value.trim();
           const password = document.getElementById("loginPassword").value;
@@ -1592,6 +1671,8 @@
           resetAuthForm();
           applyRolePermissions();
           if (currentUser.password_must_change) {
+            setForcedPasswordStep();
+            document.getElementById("authOverlay").classList.remove("hidden");
             return;
           }
           await cargarInicial();
@@ -1610,6 +1691,8 @@
         resetAuthForm();
         applyRolePermissions();
         if (currentUser.password_must_change) {
+          setForcedPasswordStep();
+          document.getElementById("authOverlay").classList.remove("hidden");
           return;
         }
         await cargarInicial();
