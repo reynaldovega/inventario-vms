@@ -1030,9 +1030,15 @@ def filter_dashboard_rows(
             lambda row: " ".join(normalize_text(value) for value in row),
             axis=1,
         )
-        mask = pd.Series(True, index=result.index)
-        for term in [term for term in normalized_query.split() if term]:
-            mask &= blob.str.contains(term, na=False)
+        search_groups = [group.strip() for group in normalized_query.split(",") if group.strip()]
+        if not search_groups:
+            search_groups = [normalized_query]
+        mask = pd.Series(False, index=result.index)
+        for group in search_groups:
+            group_mask = pd.Series(True, index=result.index)
+            for term in [term for term in group.split() if term]:
+                group_mask &= blob.str.contains(term, na=False)
+            mask |= group_mask
         result = result[mask]
 
     return result
@@ -1050,7 +1056,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "cargo2_ab", "hostname", "ticket", "so", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "cargo2_ab", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
@@ -1058,6 +1064,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     merged["so_inventario"] = merged.get("so", "")
     merged["so_version"] = merged["so_version"].where(merged["so_version"] != "", merged["so_inventario"].map(normalize_os_version))
     merged["sistema_operativo"] = merged["sistema_operativo"].where(merged["sistema_operativo"] != "", merged["so_inventario"])
+    merged["inventario_search_blob"] = merged.get("search_blob", "")
     return merged.fillna(""), infra_file_name, int(len(infra))
 
 
@@ -1575,6 +1582,7 @@ def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
         "sistema_operativo",
         "so_version",
         "fecha_entrega",
+        "inventario_search_blob",
     ]
     return df[[column for column in columns if column in df.columns]].copy()
 

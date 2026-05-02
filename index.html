@@ -917,7 +917,7 @@
             <button class="secondary" onclick="limpiar()">Limpiar</button>
           </div>
           <div class="helper">Ejemplo de uso: <strong>41107381, sccvdi, windows 10</strong>. El sistema buscara cada parte y mostrara los registros relacionados.</div>
-          <div class="helper">Columnas tomadas del Excel: A IP, D Area, E Centro de costo, F DNI, Q Hostname, X Ticket, Y Fecha conexion, Z Fecha asignacion, AA Modelo seguro, AB CARGO2.</div>
+          <div class="helper">Columnas tomadas del Excel: A IP, D Area, E Centro de costo, F DNI, Q Hostname, X Ticket, Y Fecha conexion, Z Fecha asignacion, AA Modelo seguro, AB Cargo.</div>
         </div>
       </div>
 
@@ -1022,8 +1022,8 @@
         <div class="panel">
           <div class="section-head">
             <div>
-              <h3>CARGO2 AB activos</h3>
-              <p>Conteo de remotas asignadas por CARGO2 AB.</p>
+              <h3>Cargo activos</h3>
+              <p>Conteo de remotas asignadas por cargo.</p>
             </div>
             <button class="secondary hidden admin-export" data-export-button="por_cargo2_ab" type="button">Exportar</button>
           </div>
@@ -1116,7 +1116,7 @@
           <button class="secondary hidden admin-export" id="exportDashboardButton" onclick="descargarDashboardVms()" type="button">Exportar filtrado</button>
         </div>
         <div class="inline-form dashboard-filters">
-          <input type="text" id="dashQuery" placeholder="Buscar IP, hostname, ticket">
+          <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
           <div class="multi-select" id="dashAreaFilter" data-filter-key="area">
             <button class="multi-select-toggle" id="dashAreaToggle" onclick="toggleDashboardMultiFilter('area')" type="button">Campana</button>
             <div class="multi-select-menu hidden" id="dashAreaMenu">
@@ -1191,7 +1191,7 @@
           <div id="chartVmServicios"></div>
         </div>
         <div class="chart-panel wide" data-dashboard-export="por_cargo2_ab">
-          <h3>Equipos asignados por CARGO2 AB</h3>
+          <h3>Equipos asignados por cargo</h3>
           <div id="chartVmCargo2"></div>
         </div>
       </section>
@@ -1207,7 +1207,7 @@
       </section>
       <section class="grid">
         <div class="panel" data-dashboard-export="por_cargo2_ab">
-          <h3>Asignadas por CARGO2 AB</h3>
+          <h3>Asignadas por cargo</h3>
           <div class="table-wrap"><table class="mini-table" id="tablaDashCargo2"></table></div>
         </div>
         <div class="panel" data-dashboard-export="por_so">
@@ -1963,7 +1963,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "CARGO2 AB", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
       ];
 
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
@@ -2022,9 +2022,9 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderCargos2(items) {
       renderMiniTable(
         "tablaCargos2",
-        ["CARGO2 AB", "Cantidad"],
+        ["Cargo", "Cantidad"],
         items.map(item => `<tr><td>${item.cargo2_ab || "-"}</td><td>${item.cantidad}</td></tr>`),
-        "Sin datos de CARGO2 AB"
+        "Sin datos de cargo"
       );
     }
 
@@ -2055,7 +2055,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const headers = ["Area", "Centro de costo", "CARGO2 AB", "Cantidad IPs", "IPs unicas", "DNI unicos", "Tickets unicos", "Windows 10", "Windows 11"];
+      const headers = ["Area", "Centro de costo", "Cargo", "Cantidad IPs", "IPs unicas", "DNI unicos", "Tickets unicos", "Windows 10", "Windows 11"];
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
       const rows = items.map(item => `
         <tr>
@@ -2378,9 +2378,9 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       renderMiniTable(
         "tablaDashCargo2",
-        ["CARGO2 AB", "Cantidad"],
+        ["Cargo", "Cantidad"],
         (data.por_cargo2_ab || []).map(item => `<tr><td>${item.cargo2_ab || "-"}</td><td>${item.cantidad}</td></tr>`),
-        "Sin datos de CARGO2 AB"
+        "Sin datos de cargo"
       );
       renderMiniTable(
         "tablaDashSo",
@@ -2401,7 +2401,7 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "DNI", "Nombre", "Area", "Centro costo", "CARGO2 AB", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "DNI", "Nombre", "Area", "Centro costo", "Cargo", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
