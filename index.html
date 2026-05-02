@@ -453,6 +453,29 @@
       background: #fff9ef;
     }
 
+    .column-filter-row th {
+      top: 43px;
+      background: #fffaf1;
+      padding: 8px 10px;
+    }
+
+    .column-filter-row input {
+      width: 100%;
+      min-width: 92px;
+      border: 1px solid #d8cbb7;
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 0.82rem;
+      background: #ffffff;
+      color: #2f2a24;
+      outline: none;
+    }
+
+    .column-filter-row input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 2px rgba(30, 111, 92, 0.12);
+    }
+
     .badge {
       display: inline-flex;
       align-items: center;
@@ -1167,6 +1190,8 @@
     let inactivityTimer = null;
     let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
     let dashboardLoadedOnce = false;
+    let currentApplications = [];
+    let applicationColumnFilters = {};
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
@@ -1949,37 +1974,96 @@ document.addEventListener("DOMContentLoaded", () => {
       table.innerHTML = head + rows;
     }
 
-    function renderApplications(data) {
+    const applicationColumns = [
+      { key: "estado_alerta", label: "Alerta" },
+      { key: "last_action", label: "Accion" },
+      { key: "dni", label: "DNI" },
+      { key: "nombre_completo", label: "Nombre" },
+      { key: "hostname", label: "Hostname" },
+      { key: "processor", label: "Procesador" },
+      { key: "memory_ram", label: "RAM" },
+      { key: "disk", label: "Disco" },
+      { key: "windows_version", label: "Windows" },
+      { key: "windows_license", label: "Licencia" },
+      { key: "internet", label: "Internet" },
+      { key: "carbon_black_installed", label: "Carbon" },
+      { key: "anyconnect_installed", label: "AnyConnect" },
+      { key: "rdp_remote_ips", label: "RDP destino" },
+      { key: "reported_at", label: "Reporte" },
+    ];
+
+    function normalizeClientText(value) {
+      return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      }[char]));
+    }
+
+    function getApplicationCellValue(item, key) {
+      if (key === "internet") return formatInternetReport(item);
+      if (key === "last_action") return item.last_action || "inventario";
+      return item[key] || "-";
+    }
+
+    function applyApplicationColumnFilters() {
       const table = document.getElementById("tablaAplicaciones");
-      const alertas = data.filter(item => item.estado_alerta === "ALERTA").length;
-      setText("appsTotal", data.length);
+      const filters = Object.entries(applicationColumnFilters)
+        .map(([key, value]) => [key, normalizeClientText(value).split(/\s+/).filter(Boolean)])
+        .filter(([, terms]) => terms.length);
+      let visible = 0;
+      let alertas = 0;
+      table.querySelectorAll("tbody tr").forEach(row => {
+        const matches = filters.every(([key, terms]) => {
+          const cell = row.querySelector(`[data-app-col="${key}"]`);
+          const text = normalizeClientText(cell ? cell.textContent : "");
+          return terms.every(term => text.includes(term));
+        });
+        row.style.display = matches ? "" : "none";
+        if (matches) {
+          visible += 1;
+          if (row.dataset.alerta === "ALERTA") alertas += 1;
+        }
+      });
+      setText("appsTotal", visible);
       setText("appsAlertas", alertas);
-      if (!data.length) {
+    }
+
+    function renderApplications(data) {
+      currentApplications = Array.isArray(data) ? data : [];
+      const table = document.getElementById("tablaAplicaciones");
+      if (!currentApplications.length) {
+        setText("appsTotal", 0);
+        setText("appsAlertas", 0);
         table.innerHTML = `<tr><td class="empty">No hay reportes de aplicativos para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["Alerta", "Accion", "DNI", "Nombre", "Hostname", "Procesador", "RAM", "Disco", "Windows", "Licencia", "Internet", "Carbon", "AnyConnect", "RDP destino", "Reporte"];
-      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
-      const rows = data.map(item => `
-        <tr class="${item.estado_alerta === "ALERTA" ? "danger-row" : ""}">
-          <td>${item.estado_alerta || "-"}</td>
-          <td>${item.last_action || "inventario"}</td>
-          <td>${item.dni || "-"}</td>
-          <td>${item.nombre_completo || "-"}</td>
-          <td>${item.hostname || "-"}</td>
-          <td>${item.processor || "-"}</td>
-          <td>${item.memory_ram || "-"}</td>
-          <td>${item.disk || "-"}</td>
-          <td>${item.windows_version || "-"}</td>
-          <td>${item.windows_license || "-"}</td>
-          <td>${formatInternetReport(item)}</td>
-          <td>${item.carbon_black_installed || "-"}</td>
-          <td>${item.anyconnect_installed || "-"}</td>
-          <td>${item.rdp_remote_ips || "-"}</td>
-          <td>${item.reported_at || "-"}</td>
+      const head = `
+        <thead>
+          <tr>${applicationColumns.map(item => `<th>${item.label}</th>`).join("")}</tr>
+          <tr class="column-filter-row">${applicationColumns.map(item => `
+            <th><input type="text" data-app-filter="${item.key}" value="${escapeHtml(applicationColumnFilters[item.key] || "")}" placeholder="Filtrar"></th>
+          `).join("")}</tr>
+        </thead>`;
+      const rows = currentApplications.map(item => `
+        <tr class="${item.estado_alerta === "ALERTA" ? "danger-row" : ""}" data-alerta="${escapeHtml(item.estado_alerta || "")}">
+          ${applicationColumns.map(column => `<td data-app-col="${column.key}">${escapeHtml(getApplicationCellValue(item, column.key))}</td>`).join("")}
         </tr>
       `).join("");
-      table.innerHTML = head + rows;
+      table.innerHTML = `${head}<tbody>${rows}</tbody>`;
+      table.querySelectorAll("[data-app-filter]").forEach(input => {
+        input.addEventListener("input", () => {
+          applicationColumnFilters[input.dataset.appFilter] = input.value;
+          applyApplicationColumnFilters();
+        });
+      });
+      applyApplicationColumnFilters();
     }
 
     function formatInternetReport(item) {
@@ -2010,6 +2094,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function limpiarAplicaciones() {
       document.getElementById("appsSearch").value = "";
+      applicationColumnFilters = {};
       cargarAplicaciones();
     }
 
