@@ -473,6 +473,19 @@
       color: var(--muted);
     }
 
+    .invite-link-box {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .invite-link-box textarea {
+      min-height: 86px;
+      resize: vertical;
+      word-break: break-all;
+      font-size: 0.82rem;
+    }
+
     .tabs {
       display: flex;
       gap: 8px;
@@ -1185,6 +1198,43 @@
 
     function setText(id, value) {
       document.getElementById(id).textContent = value ?? "0";
+    }
+
+    function setInviteStatus(message, link = "") {
+      const status = document.getElementById("inviteStatus");
+      status.innerHTML = "";
+      if (!link) {
+        status.textContent = message;
+        return;
+      }
+      const label = document.createElement("div");
+      label.textContent = message;
+      const box = document.createElement("div");
+      box.className = "invite-link-box";
+      const output = document.createElement("textarea");
+      output.id = "inviteLinkOutput";
+      output.readOnly = true;
+      output.value = link;
+      const button = document.createElement("button");
+      button.className = "secondary";
+      button.type = "button";
+      button.textContent = "Copiar enlace";
+      button.onclick = copiarInvitacion;
+      box.append(output, button);
+      status.append(label, box);
+    }
+
+    async function copiarInvitacion() {
+      const output = document.getElementById("inviteLinkOutput");
+      if (!output) return;
+      try {
+        await navigator.clipboard.writeText(output.value);
+      } catch (_) {
+        output.focus();
+        output.select();
+        document.execCommand("copy");
+      }
+      document.getElementById("inviteStatus").querySelector("div").textContent = "Enlace copiado. Ya puedes enviarlo por WhatsApp o correo.";
     }
 
     function badgeEstado(estado) {
@@ -2101,7 +2151,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function enviarInvitacion() {
       const status = document.getElementById("inviteStatus");
-      status.textContent = "";
+      status.innerHTML = "";
       try {
         const payload = await jsonFetch(`${apiBase}/admin/invitations`, {
           method: "POST",
@@ -2112,11 +2162,13 @@ document.addEventListener("DOMContentLoaded", () => {
           }),
         });
         if (payload.mail_sent) {
-          status.textContent = payload.existing
-            ? `Enlace de acceso enviado a ${payload.email}.`
-            : `Invitacion enviada a ${payload.email}.`;
+          const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
+          setInviteStatus(payload.existing
+            ? `Enlace de acceso enviado a ${payload.email}${roleNote}.`
+            : `Invitacion enviada a ${payload.email}${roleNote}.`);
         } else {
-          status.textContent = `Correo no disponible. Copia y envia este enlace a ${payload.email}: ${payload.link}`;
+          const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
+          setInviteStatus(`Correo no disponible. Copia y envia este enlace a ${payload.email}${roleNote}.`, payload.link);
         }
       } catch (error) {
         status.textContent = error.message;

@@ -453,6 +453,22 @@ def find_user_by_email(email: str) -> tuple[str, dict] | tuple[str, None]:
     return "", None
 
 
+def apply_invited_role_to_existing_user(username: str, user: dict, role: str) -> bool:
+    if user.get("role") == "admin":
+        return False
+
+    changed = False
+    if user.get("role") != role:
+        user["role"] = role
+        user["permissions"] = ROLE_DEFAULT_PERMISSIONS.get(role, ["inventario"])
+        changed = True
+
+    if changed:
+        USERS[username] = user
+        persist_dynamic_users()
+    return changed
+
+
 def send_link_email(destino: str, asunto: str, titulo: str, descripcion: str, link: str) -> None:
     texto = "\n".join([titulo, "", descripcion, "", link, "", "Area Sistema Tecnologia"])
     html = f"""
@@ -1811,9 +1827,15 @@ async def create_invitation(request: Request):
         existing_user = USERS[username]
 
     if existing_user:
+        role_updated = apply_invited_role_to_existing_user(existing_username, existing_user, role)
         token = make_action_token("access", existing_username, ttl_seconds=48 * 60 * 60)
         link = build_public_url(request, token, "access")
-        audit_event("access_link_created", request, existing_username, {"email": email, "expires_hours": 48})
+        audit_event(
+            "access_link_created",
+            request,
+            existing_username,
+            {"email": email, "role": USERS[existing_username].get("role", ""), "role_updated": role_updated, "expires_hours": 48},
+        )
         mail_sent = True
         try:
             send_link_email(
@@ -1831,7 +1853,8 @@ async def create_invitation(request: Request):
             "existing": True,
             "username": existing_username,
             "email": email,
-            "role": existing_user.get("role", ""),
+            "role": USERS[existing_username].get("role", ""),
+            "role_updated": role_updated,
             "link": link,
             "mail_sent": mail_sent,
         }
