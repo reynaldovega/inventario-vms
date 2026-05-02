@@ -972,10 +972,15 @@ def filter_dashboard_rows(
 ) -> pd.DataFrame:
     result = merged.copy()
 
+    def split_multi_filter(value: str) -> list[str]:
+        if not value:
+            return []
+        parts = re.split(r"\|\||,", value)
+        return [normalize_text(part) for part in parts if normalize_text(part)]
+
     filters = {
         "area": area,
         "centro_costo": centro_costo,
-        "cargo2_ab": cargo2_ab,
         "dni": dni,
         "so_version": sistema_operativo,
         "estado_cruce": estado,
@@ -984,6 +989,10 @@ def filter_dashboard_rows(
         normalized = normalize_text(value)
         if normalized and normalized != "todos" and field in result:
             result = result[result[field].map(normalize_text) == normalized]
+
+    cargo_filters = split_multi_filter(cargo2_ab)
+    if cargo_filters and "cargo2_ab" in result:
+        result = result[result["cargo2_ab"].map(normalize_text).isin(cargo_filters)]
 
     normalized_query = normalize_text(q)
     if normalized_query:
@@ -1081,6 +1090,21 @@ def load_applications_store() -> pd.DataFrame:
 def save_applications_store(df: pd.DataFrame) -> None:
     records = df.fillna("").to_dict(orient="records")
     save_json_file(APPLICATIONS_STORE_PATH, records)
+
+
+def applications_store_status() -> dict:
+    df = ensure_applications_loaded()
+    last_report = ""
+    if not df.empty and "reported_at" in df.columns:
+        values = df["reported_at"].fillna("").astype(str)
+        last_report = clean_value(values.max()) if not values.empty else ""
+    return {
+        "count": int(len(df)),
+        "store_exists": APPLICATIONS_STORE_PATH.exists(),
+        "path": str(APPLICATIONS_STORE_PATH),
+        "last_reported_at": last_report,
+        "storage": data_dir_status(),
+    }
 
 
 def ensure_applications_loaded() -> pd.DataFrame:
@@ -2086,7 +2110,13 @@ async def verify_otp(request: Request, response: Response):
 async def upload_file(request: Request, file: UploadFile = File(...)):
     require_permission(request, "cargar_excel")
     global df_global, current_file_name
-    df_global = load_dataframe_from_excel(file.file)
+    loaded_df = load_dataframe_from_excel(file.file)
+    if loaded_df.empty:
+        raise HTTPException(
+            status_code=400,
+            detail="El Excel no tiene registros validos para la base principal. Verifica que sea la base de agentes TTO y que conserve las columnas originales.",
+        )
+    df_global = loaded_df
     current_file_name = file.filename or "archivo_subido.xlsx"
     return {
         "mensaje": "Archivo cargado correctamente",
@@ -2100,7 +2130,13 @@ async def upload_infra_vms(request: Request, file: UploadFile = File(...)):
     require_permission(request, "dashboard_vms")
     global infra_df_global, infra_file_name
     content = await file.read()
-    infra_df_global = load_infra_dataframe_from_excel(io.BytesIO(content))
+    loaded_df = load_infra_dataframe_from_excel(io.BytesIO(content))
+    if loaded_df.empty:
+        raise HTTPException(
+            status_code=400,
+            detail="El Excel no tiene IPs validas para infraestructura. Este cargador espera la base VMS con IPAddress en columna A, VMM/TS en B, HOSTNAME INFRA en C, Sistema Operativo en G y Fecha entrega VMS en H. Para la base de agentes TTO usa la pestaña Inventario VMS.",
+        )
+    infra_df_global = loaded_df
     infra_file_name = file.filename or "infra_vms.xlsx"
     persisted_excel = save_infra_upload(infra_file_name, content)
     persisted_json = save_infra_dataframe(infra_df_global)
@@ -2214,6 +2250,12 @@ def applications_tto(
     if df.empty:
         return []
     return df.fillna("").to_dict(orient="records")
+
+
+@app.get("/applications-tto/status")
+def applications_tto_status(request: Request):
+    require_permission(request, "aplicaciones_tto")
+    return applications_store_status()
 
 
 @app.get("/vms")

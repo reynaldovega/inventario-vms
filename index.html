@@ -555,6 +555,80 @@
       width: 100%;
     }
 
+    .multi-select {
+      position: relative;
+      min-width: 0;
+    }
+
+    .multi-select-toggle {
+      width: 100%;
+      background: white;
+      color: var(--text);
+      border-color: var(--line);
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .multi-select-toggle::after {
+      content: "⌄";
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .multi-select-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      z-index: 20;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 10px;
+    }
+
+    .multi-select-menu input {
+      width: 100%;
+      margin-bottom: 8px;
+    }
+
+    .multi-select-options {
+      max-height: 220px;
+      overflow: auto;
+      display: grid;
+      gap: 4px;
+    }
+
+    .multi-select-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .multi-select-option {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 7px 6px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+
+    .multi-select-option:hover {
+      background: rgba(30, 111, 92, 0.08);
+    }
+
+    .multi-select-option input {
+      width: auto;
+      margin-top: 2px;
+    }
+
     .search-insights {
       margin-top: 22px;
     }
@@ -996,6 +1070,7 @@
               <div class="card"><span>Registros</span><strong id="appsTotal">0</strong></div>
               <div class="card"><span>Alertas</span><strong id="appsAlertas">0</strong></div>
             </div>
+            <div class="file-meta" id="appsStatus">Sin estado de reportes.</div>
           </div>
         </div>
       </section>
@@ -1044,7 +1119,17 @@
           <input type="text" id="dashQuery" placeholder="Buscar IP, hostname, ticket">
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
-          <select id="dashCargo2Filter"><option value="">CARGO2 AB</option></select>
+          <div class="multi-select" id="dashCargo2Filter">
+            <button class="multi-select-toggle" id="dashCargo2Toggle" onclick="toggleCargoFilter()" type="button">Cargo actual</button>
+            <div class="multi-select-menu hidden" id="dashCargo2Menu">
+              <input type="text" id="dashCargo2Search" placeholder="Buscar cargo">
+              <div class="multi-select-options" id="dashCargo2Options"></div>
+              <div class="multi-select-actions">
+                <button type="button" onclick="applyCargoFilter()">Buscar</button>
+                <button class="secondary" type="button" onclick="clearCargoFilter()">Limpiar</button>
+              </div>
+            </div>
+          </div>
           <input type="text" id="dashDniFilter" placeholder="DNI">
           <select id="dashSoFilter"><option value="">Sistema operativo</option></select>
           <select id="dashEstadoFilter">
@@ -1988,8 +2073,15 @@ document.addEventListener("DOMContentLoaded", () => {
     async function cargarAplicaciones() {
       if (!currentUser || !hasPermission("aplicaciones_tto")) return;
       const q = document.getElementById("appsSearch").value.trim();
-      const data = await jsonFetch(`${apiBase}/applications-tto?q=${encodeURIComponent(q)}`);
+      const [data, status] = await Promise.all([
+        jsonFetch(`${apiBase}/applications-tto?q=${encodeURIComponent(q)}`),
+        jsonFetch(`${apiBase}/applications-tto/status`),
+      ]);
       renderApplications(data);
+      const storage = status.storage || {};
+      document.getElementById("appsStatus").textContent = status.count
+        ? `Reportes guardados: ${status.count}. Ultimo reporte: ${status.last_reported_at || "-"}.`
+        : `Sin reportes guardados. Archivo ${status.store_exists ? "encontrado" : "no encontrado"} en ${status.path || "DATA_DIR"}. Persistencia ${storage.writable ? "disponible" : "no disponible"}.`;
     }
 
     function limpiarAplicaciones() {
@@ -2002,7 +2094,7 @@ document.addEventListener("DOMContentLoaded", () => {
         q: document.getElementById("dashQuery").value.trim(),
         area: document.getElementById("dashAreaFilter").value,
         centro_costo: document.getElementById("dashCentroFilter").value,
-        cargo2_ab: document.getElementById("dashCargo2Filter").value,
+        cargo2_ab: getSelectedCargoFilters().join("||"),
         dni: document.getElementById("dashDniFilter").value.trim(),
         sistema_operativo: document.getElementById("dashSoFilter").value,
         estado: document.getElementById("dashEstadoFilter").value,
@@ -2020,10 +2112,93 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    function normalizeText(value) {
+      return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+    }
+
+    function escapeHtml(value) {
+      return String(value || "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char]));
+    }
+
+    let cargoFilterValues = [];
+    let selectedCargoFilters = new Set();
+
+    function getSelectedCargoFilters() {
+      return [...selectedCargoFilters];
+    }
+
+    function updateCargoFilterLabel() {
+      const selected = getSelectedCargoFilters();
+      const toggle = document.getElementById("dashCargo2Toggle");
+      toggle.textContent = "Cargo actual";
+      toggle.title = selected.length ? selected.join(", ") : "Cargo actual";
+    }
+
+    function renderCargoFilterOptions(search = "") {
+      const normalizedSearch = normalizeText(search);
+      const options = document.getElementById("dashCargo2Options");
+      const values = cargoFilterValues.filter(value => !normalizedSearch || normalizeText(value).includes(normalizedSearch));
+      options.innerHTML = values.length
+        ? values.map(value => `
+            <label class="multi-select-option">
+              <input type="checkbox" value="${escapeHtml(value)}" ${selectedCargoFilters.has(value) ? "checked" : ""}>
+              <span>${escapeHtml(value)}</span>
+            </label>
+          `).join("")
+        : `<div class="empty">Sin cargos relacionados.</div>`;
+      options.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) {
+            selectedCargoFilters.add(checkbox.value);
+          } else {
+            selectedCargoFilters.delete(checkbox.value);
+          }
+          updateCargoFilterLabel();
+          cargarDashboardVms();
+        });
+      });
+      updateCargoFilterLabel();
+    }
+
+    function setCargoFilterOptions(values) {
+      cargoFilterValues = values || [];
+      selectedCargoFilters = new Set([...selectedCargoFilters].filter(value => cargoFilterValues.includes(value)));
+      renderCargoFilterOptions(document.getElementById("dashCargo2Search").value);
+      updateCargoFilterLabel();
+    }
+
+    function toggleCargoFilter() {
+      document.getElementById("dashCargo2Menu").classList.toggle("hidden");
+      document.getElementById("dashCargo2Search").focus();
+    }
+
+    function applyCargoFilter() {
+      document.getElementById("dashCargo2Menu").classList.add("hidden");
+      cargarDashboardVms();
+    }
+
+    function clearCargoFilter() {
+      selectedCargoFilters.clear();
+      document.getElementById("dashCargo2Search").value = "";
+      renderCargoFilterOptions("");
+      updateCargoFilterLabel();
+      cargarDashboardVms();
+    }
+
     function updateDashboardFilterOptions(options) {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
-      fillSelectOptions("dashCargo2Filter", "CARGO2 AB", options.cargos2_ab || []);
+      setCargoFilterOptions(options.cargos2_ab || []);
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
     }
 
@@ -2031,7 +2206,11 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("dashQuery").value = "";
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
-      document.getElementById("dashCargo2Filter").value = "";
+      selectedCargoFilters.clear();
+      document.getElementById("dashCargo2Search").value = "";
+      renderCargoFilterOptions("");
+      document.getElementById("dashCargo2Menu").classList.add("hidden");
+      updateCargoFilterLabel();
       document.getElementById("dashDniFilter").value = "";
       document.getElementById("dashSoFilter").value = "";
       document.getElementById("dashEstadoFilter").value = "";
@@ -2245,17 +2424,21 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const formData = new FormData();
       formData.append("file", file);
-      const response = await jsonFetch(`${apiBase}/upload-infra-vms`, {
-        method: "POST",
-        headers: {},
-        body: formData,
-      });
-      resetDashboardFilterControls();
-      await cargarDashboardVms();
-      alert(response.persisted
-        ? `${response.mensaje}. Registros: ${response.registros}. Quedo guardada.`
-        : `${response.mensaje}. Registros: ${response.registros}. Advertencia: no se pudo guardar de forma persistente en el servidor.`
-      );
+      try {
+        const response = await jsonFetch(`${apiBase}/upload-infra-vms`, {
+          method: "POST",
+          headers: {},
+          body: formData,
+        });
+        resetDashboardFilterControls();
+        await cargarDashboardVms();
+        alert(response.persisted
+          ? `${response.mensaje}. Registros: ${response.registros}. Quedo guardada.`
+          : `${response.mensaje}. Registros: ${response.registros}. Advertencia: no se pudo guardar de forma persistente en el servidor.`
+        );
+      } catch (error) {
+        alert(error.message || "No se pudo subir la base VMS.");
+      }
     }
 
     async function enviarInvitacion() {
@@ -2457,7 +2640,7 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
         alert(`${response.mensaje}. Registros procesados: ${response.registros}`);
       } catch (error) {
         console.error(error);
-        alert("No se pudo subir el archivo.");
+        alert(error.message || "No se pudo subir el archivo.");
       }
     }
 async function buscar() {
@@ -2541,8 +2724,19 @@ function limpiar() {
       await buscar();
     });
 
-    ["dashAreaFilter", "dashCentroFilter", "dashCargo2Filter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
+    ["dashAreaFilter", "dashCentroFilter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
+    });
+
+    document.getElementById("dashCargo2Search").addEventListener("input", (event) => {
+      renderCargoFilterOptions(event.target.value);
+    });
+
+    document.addEventListener("click", (event) => {
+      const filter = document.getElementById("dashCargo2Filter");
+      if (filter && !filter.contains(event.target)) {
+        document.getElementById("dashCargo2Menu").classList.add("hidden");
+      }
     });
 
     ["dashQuery", "dashDniFilter"].forEach((id) => {
