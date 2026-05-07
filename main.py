@@ -621,6 +621,18 @@ def load_persisted_users() -> dict:
             "password_policy_version": int(item.get("password_policy_version", 0) or 0),
             "permissions": normalize_permissions(item.get("permissions"), role),
         }
+        env_user = get_env_user(user)
+        if env_user:
+            env_role = env_user.get("role", role)
+            loaded[user].update(
+                {
+                    "role": env_role,
+                    "display_name": env_user.get("display_name", loaded[user]["display_name"]),
+                    "email": env_user.get("email", loaded[user]["email"]),
+                    "email_greeting": env_user.get("email_greeting", loaded[user]["email_greeting"]),
+                    "permissions": normalize_permissions(env_user.get("permissions"), env_role),
+                }
+            )
     return loaded
 
 
