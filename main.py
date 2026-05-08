@@ -2157,7 +2157,7 @@ def access_link(token: str = Query(default="")):
 
 
 @app.post("/admin/invitations")
-async def create_invitation(request: Request, background_tasks: BackgroundTasks):
+async def create_invitation(request: Request):
     require_permission(request, "invitaciones")
     body = await request.json()
     email = str(body.get("email", "")).strip().lower()
@@ -2184,14 +2184,20 @@ async def create_invitation(request: Request, background_tasks: BackgroundTasks)
             existing_username,
             {"email": email, "role": USERS[existing_username].get("role", ""), "role_updated": role_updated, "expires_hours": 48},
         )
-        background_tasks.add_task(
-            send_link_email_safely,
-            email,
-            "Acceso a Inventario VMS",
-            "Acceso a la plataforma",
-            "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
-            link,
-        )
+        mail_sent = False
+        mail_error = ""
+        try:
+            send_link_email(
+                email,
+                "Acceso a Inventario VMS",
+                "Acceso a la plataforma",
+                "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
+                link,
+            )
+            mail_sent = True
+        except Exception as exc:
+            mail_error = f"{type(exc).__name__}: {exc}"
+            print(f"[ERROR] No se pudo enviar enlace a {email}: {mail_error}", flush=True)
         return {
             "ok": True,
             "existing": True,
@@ -2200,9 +2206,9 @@ async def create_invitation(request: Request, background_tasks: BackgroundTasks)
             "role": USERS[existing_username].get("role", ""),
             "role_updated": role_updated,
             "link": link,
-            "mail_sent": False,
-            "mail_pending": True,
-            "mail_error": "",
+            "mail_sent": mail_sent,
+            "mail_pending": False,
+            "mail_error": mail_error,
         }
 
     token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
@@ -2219,15 +2225,21 @@ async def create_invitation(request: Request, background_tasks: BackgroundTasks)
     save_json_file(INVITES_STORE_PATH, invite_store)
 
     link = build_public_url(request, token, "invite")
-    background_tasks.add_task(
-        send_link_email_safely,
-        email,
-        "Invitacion de acceso | Inventario VMS",
-        "Invitacion de acceso",
-        "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
-        link,
-    )
-    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": False, "mail_pending": True, "mail_error": ""}
+    mail_sent = False
+    mail_error = ""
+    try:
+        send_link_email(
+            email,
+            "Invitacion de acceso | Inventario VMS",
+            "Invitacion de acceso",
+            "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
+            link,
+        )
+        mail_sent = True
+    except Exception as exc:
+        mail_error = f"{type(exc).__name__}: {exc}"
+        print(f"[ERROR] No se pudo enviar enlace a {email}: {mail_error}", flush=True)
+    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": mail_sent, "mail_pending": False, "mail_error": mail_error}
 
 
 @app.get("/admin/users")
