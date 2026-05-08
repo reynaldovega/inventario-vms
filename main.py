@@ -331,12 +331,14 @@ def validate_password_policy(password: str, username: str = "", email: str = "",
 
 
 def normalize_role(role: object) -> str:
-    normalized = normalize_text(role)
+    text = "" if role is None else str(role)
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    normalized = re.sub(r"[^a-z0-9]+", "", text.strip().lower())
     if normalized in {"admin", "administrador"}:
         return "admin"
     if normalized in {"ti", "tecnologia", "tecnologico", "ingenieria"}:
         return "tecnologia"
-    if normalized in {"invitado", "lectura", "read", "reader"}:
+    if normalized in {"invitado", "invitados", "lectura", "read", "reader"}:
         return "invitado"
     return normalized
 
