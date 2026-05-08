@@ -1,6 +1,7 @@
 from pathlib import Path
 import base64
 import hashlib
+import html as html_lib
 import hmac
 import io
 import json
@@ -63,6 +64,7 @@ PASSWORD_MAX_AGE_SECONDS = int(os.getenv("PASSWORD_MAX_AGE_SECONDS", str(90 * 24
 PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
+SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin").strip().lower() or "admin"
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
@@ -327,7 +329,20 @@ def validate_password_policy(password: str, username: str = "", email: str = "",
         errors.append("No debe contener datos evidentes del usuario.")
     return errors
 
+
+def normalize_role(role: object) -> str:
+    normalized = normalize_text(role)
+    if normalized in {"admin", "administrador"}:
+        return "admin"
+    if normalized in {"ti", "tecnologia", "tecnologico", "ingenieria"}:
+        return "tecnologia"
+    if normalized in {"invitado", "lectura", "read", "reader"}:
+        return "invitado"
+    return normalized
+
+
 def normalize_permissions(raw_permissions, role: str) -> list[str]:
+    role = normalize_role(role)
     if isinstance(raw_permissions, str):
         permissions = [item.strip() for item in raw_permissions.split(",")]
     elif isinstance(raw_permissions, list):
@@ -548,6 +563,46 @@ def send_link_email_safely(destino: str, asunto: str, titulo: str, descripcion: 
         print(f"[ERROR] No se pudo enviar enlace a {destino}: {mail_error}", flush=True)
 
 
+def generate_temporary_password(username: str, email: str, display_name: str) -> str:
+    symbols = "!@#$%&*?"
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789" + symbols
+    for _ in range(100):
+        chars = [
+            secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ"),
+            secrets.choice("abcdefghijkmnopqrstuvwxyz"),
+            secrets.choice("23456789"),
+            secrets.choice(symbols),
+        ]
+        chars.extend(secrets.choice(alphabet) for _ in range(10))
+        secrets.SystemRandom().shuffle(chars)
+        password = "".join(chars)
+        if not validate_password_policy(password, username, email, display_name):
+            return password
+    return f"Temp{secrets.token_urlsafe(10)}*9aA"
+
+
+def send_temporary_password_email(destino: str, display_name: str, temporary_password: str) -> None:
+    saludo = clean_value(display_name) or "usuario"
+    saludo_html = html_lib.escape(saludo)
+    password_html = html_lib.escape(temporary_password)
+    texto = (
+        f"Hola {saludo},\n\n"
+        "El super admin restablecio tu contrasena de Inventario VMS.\n\n"
+        f"Contrasena temporal: {temporary_password}\n\n"
+        "Al ingresar se te pedira cambiarla por una contrasena personal que cumpla la politica de seguridad.\n"
+        "Si no solicitaste este cambio, informa al administrador."
+    )
+    html = f"""
+    <p>Hola <strong>{saludo_html}</strong>,</p>
+    <p>El super admin restablecio tu contrasena de Inventario VMS.</p>
+    <p><strong>Contrasena temporal:</strong></p>
+    <p style="font-size:18px;letter-spacing:1px;padding:12px;border:1px solid #ddd;border-radius:8px;display:inline-block;">{password_html}</p>
+    <p>Al ingresar se te pedira cambiarla por una contrasena personal que cumpla la politica de seguridad.</p>
+    <p>Si no solicitaste este cambio, informa al administrador.</p>
+    """
+    enviar_correo_html(destino, "Contrasena temporal | Inventario VMS", texto, html)
+
+
 def load_users_from_env() -> dict:
     raw_users = os.getenv("APP_USERS_JSON", "").strip()
     if not raw_users:
@@ -568,7 +623,7 @@ def load_users_from_env() -> dict:
         username = str(item.get("username", "")).strip().lower()
         password = str(item.get("password", ""))
         password_hash = str(item.get("password_hash", ""))
-        role = str(item.get("role", "")).strip().lower()
+        role = normalize_role(item.get("role", ""))
         display_name = str(item.get("display_name", "")).strip() or username
         email = str(item.get("email", "")).strip().lower()
         email_greeting = str(item.get("email_greeting", "")).strip()
@@ -576,9 +631,6 @@ def load_users_from_env() -> dict:
         password_policy_version = int(item.get("password_policy_version", 0) or 0)
         force_password_change = bool(item.get("force_password_change", True))
         permissions = normalize_permissions(item.get("permissions"), role)
-
-        if role == "ti":
-            role = "tecnologia"
 
         if not username or (not password and not password_hash) or role not in {"admin", "tecnologia", "invitado"}:
             continue
@@ -612,9 +664,7 @@ def load_persisted_users() -> dict:
         if not isinstance(item, dict):
             continue
         user = str(username).strip().lower()
-        role = str(item.get("role", "")).strip().lower()
-        if role == "ti":
-            role = "tecnologia"
+        role = normalize_role(item.get("role", ""))
         password = str(item.get("password", ""))
         if not user or not password or role not in {"admin", "tecnologia", "invitado"}:
             continue
@@ -755,6 +805,7 @@ def auth_user_payload(username: str, user: dict) -> dict:
         "username": username,
         "role": user["role"],
         "display_name": user["display_name"],
+        "is_super_admin": is_super_admin({"username": username, **user}),
         "session_timeout_seconds": SESSION_TIMEOUT_SECONDS,
         "password_must_change": password_requires_change({"username": username, **user}),
         "password_max_age_days": int(PASSWORD_MAX_AGE_SECONDS / 86400),
@@ -826,6 +877,20 @@ def require_permission(request: Request, permission: str) -> dict:
     user = require_password_current(request)
     if not has_permission(user, permission):
         raise HTTPException(status_code=403, detail="Sin permisos para esta accion")
+    return user
+
+
+def is_super_admin(user: dict) -> bool:
+    return (
+        str(user.get("username", "")).strip().lower() == SUPER_ADMIN_USERNAME
+        and normalize_role(user.get("role", "")) == "admin"
+    )
+
+
+def require_super_admin(request: Request) -> dict:
+    user = require_password_current(request)
+    if not is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Solo el super admin puede realizar esta accion")
     return user
 
 
@@ -2077,10 +2142,8 @@ async def create_invitation(request: Request, background_tasks: BackgroundTasks)
     body = await request.json()
     email = str(body.get("email", "")).strip().lower()
     display_name = clean_value(body.get("display_name", ""))
-    role = str(body.get("role", "invitado")).strip().lower()
+    role = normalize_role(body.get("role", "invitado"))
     username = str(body.get("username", "")).strip().lower() or email.split("@", 1)[0]
-    if role == "ti":
-        role = "tecnologia"
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Correo invalido")
     if role not in {"tecnologia", "invitado"}:
@@ -2145,6 +2208,92 @@ async def create_invitation(request: Request, background_tasks: BackgroundTasks)
         link,
     )
     return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": False, "mail_pending": True, "mail_error": ""}
+
+
+@app.get("/admin/users")
+def admin_users(request: Request):
+    require_super_admin(request)
+    users = []
+    for username in sorted(ENV_USERNAMES):
+        user = USERS.get(username) or ENV_USERS.get(username)
+        if not user:
+            continue
+        email = clean_value(user.get("email", "")).lower()
+        users.append(
+            {
+                "username": username,
+                "display_name": clean_value(user.get("display_name", username)) or username,
+                "role": user.get("role", ""),
+                "email_hint": mask_email(email) if email else "",
+                "has_email": bool(email and "@" in email),
+                "password_must_change": password_requires_change({"username": username, **user}),
+            }
+        )
+    return {"users": users}
+
+
+@app.post("/admin/password-reset")
+async def admin_password_reset(request: Request):
+    admin_user = require_super_admin(request)
+    body = await request.json()
+    username = str(body.get("username", "")).strip().lower()
+    if not username:
+        raise HTTPException(status_code=400, detail="Selecciona un usuario")
+    if username not in ENV_USERNAMES:
+        raise HTTPException(status_code=404, detail="El usuario no esta en la lista configurada de Render")
+
+    target_user = USERS.get(username)
+    if not target_user:
+        env_user = get_env_user(username)
+        if not env_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        target_user = env_user.copy()
+
+    email = clean_value(target_user.get("email", "")).lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="El usuario no tiene un correo configurado en Render")
+
+    temporary_password = generate_temporary_password(
+        username,
+        email,
+        target_user.get("display_name", ""),
+    )
+    previous_user = target_user.copy()
+    updated_user = target_user.copy()
+    updated_user["password"] = hash_password(temporary_password)
+    updated_user["password_changed_at"] = now_ts()
+    updated_user["force_password_change"] = True
+    updated_user["password_policy_version"] = PASSWORD_POLICY_VERSION
+    USERS[username] = updated_user
+
+    if not persist_dynamic_users():
+        USERS[username] = previous_user
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo guardar la contrasena temporal en DATA_DIR. Revisa el disco persistente de Render.",
+        )
+
+    try:
+        send_temporary_password_email(
+            email,
+            updated_user.get("email_greeting", "") or updated_user.get("display_name", username),
+            temporary_password,
+        )
+    except Exception as exc:
+        USERS[username] = previous_user
+        persist_dynamic_users()
+        error_text = f"{type(exc).__name__}: {exc}"
+        print(f"[ERROR] No se pudo enviar contrasena temporal a {email}: {error_text}", flush=True)
+        detail = "No se pudo enviar la contrasena temporal al correo configurado"
+        if SHOW_MAIL_ERROR_DETAILS:
+            detail = f"{detail}. SMTP: {error_text}"
+        raise HTTPException(status_code=500, detail=detail)
+
+    audit_event("admin_password_reset", request, username, {"by": admin_user["username"], "email": email})
+    return {
+        "ok": True,
+        "message": f"Contrasena temporal enviada a {mask_email(email)}. El usuario debera cambiarla al ingresar.",
+    }
 
 
 @app.post("/accept-invite")
