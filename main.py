@@ -856,7 +856,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed = pd.DataFrame()
     processed["ip"] = safe_col(raw, 0).map(clean_value).str.strip()
     processed["so"] = safe_col(raw, 1).map(clean_value)
-    processed["anexo"] = safe_col(raw, 2).map(clean_value)
+    processed["anexo"] = safe_col(raw, 19).map(clean_value)
     processed["area"] = safe_col(raw, 3).map(clean_value)
     processed["centro_costo"] = safe_col(raw, 4).map(clean_value)
     processed["dni"] = safe_col(raw, 5).map(clean_value)
