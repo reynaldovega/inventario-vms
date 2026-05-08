@@ -64,7 +64,7 @@ PASSWORD_MAX_AGE_SECONDS = int(os.getenv("PASSWORD_MAX_AGE_SECONDS", str(90 * 24
 PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
-SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "").strip().lower()
+SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin").strip().lower() or "admin"
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
@@ -356,18 +356,36 @@ def normalize_permissions(raw_permissions, role: str) -> list[str]:
     clean_permissions = []
     for permission in permissions:
         normalized = re.sub(r"[^a-z0-9]+", "", str(permission).strip().lower())
+        if normalized in {"all", "todos", "todo", "full", "admin", "administrador"}:
+            return ROLE_DEFAULT_PERMISSIONS["admin"].copy()
         mapped = {
             "dashboard": "dashboard_vms",
             "dashboardvms": "dashboard_vms",
+            "verdashboard": "dashboard_vms",
+            "verdashboardvms": "dashboard_vms",
+            "visualizardashboard": "dashboard_vms",
             "aplicacionestto": "aplicaciones_tto",
             "apps": "aplicaciones_tto",
             "applications": "aplicaciones_tto",
+            "veraplicacionestto": "aplicaciones_tto",
+            "visualizaraplicacionestto": "aplicaciones_tto",
             "invitacion": "invitaciones",
             "invitaciones": "invitaciones",
+            "invitar": "invitaciones",
             "inventario": "inventario",
             "inventariovms": "inventario",
+            "verinventario": "inventario",
+            "visualizarinventario": "inventario",
             "exportar": "exportar",
+            "exportacion": "exportar",
+            "exportaciones": "exportar",
+            "descargar": "exportar",
+            "descargarexcel": "exportar",
             "cargarexcel": "cargar_excel",
+            "cargarbase": "cargar_excel",
+            "subirbase": "cargar_excel",
+            "subirexcel": "cargar_excel",
+            "uploadexcel": "cargar_excel",
         }.get(normalized, permission)
         if mapped in allowed and mapped not in clean_permissions:
             clean_permissions.append(mapped)
@@ -886,7 +904,7 @@ def is_super_admin(user: dict) -> bool:
     if normalize_role(user.get("role", "")) != "admin":
         return False
     username = str(user.get("username", "")).strip().lower()
-    return not SUPER_ADMIN_USERNAME or username == SUPER_ADMIN_USERNAME
+    return username == SUPER_ADMIN_USERNAME
 
 
 def require_super_admin(request: Request) -> dict:
