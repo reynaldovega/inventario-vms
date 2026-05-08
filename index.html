@@ -1945,7 +1945,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
       ];
 
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
@@ -1954,6 +1954,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${badgeEstado(item.estado)}</td>
           <td>${item.tipo_entorno || "-"}</td>
           <td>${item.so || "-"}</td>
+          <td>${item.anexo || "-"}</td>
           <td>${item.dni || "-"}</td>
           <td>${item.nombre_completo || "-"}</td>
           <td>${item.ip || "-"}</td>
@@ -2405,10 +2406,11 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "DNI", "Nombre", "Area", "Centro costo", "Cargo", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
+          <td>${item.anexo || "-"}</td>
           <td>${item.dni || "-"}</td>
           <td>${item.nombre_completo || "-"}</td>
           <td>${item.area || "-"}</td>
@@ -2506,13 +2508,14 @@ document.addEventListener("DOMContentLoaded", () => {
             role: document.getElementById("inviteRole").value,
           }),
         });
-        if (payload.mail_sent) {
-          const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
+        const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
+        if (payload.mail_pending) {
+          setInviteStatus(`Invitacion creada para ${payload.email}${roleNote}. El correo se esta intentando enviar; tambien puedes copiar este enlace.`, payload.link);
+        } else if (payload.mail_sent) {
           setInviteStatus(payload.existing
             ? `Enlace de acceso enviado a ${payload.email}${roleNote}.`
             : `Invitacion enviada a ${payload.email}${roleNote}.`);
         } else {
-          const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
           const errorNote = payload.mail_error ? ` Error SMTP: ${payload.mail_error}` : "";
           setInviteStatus(`Correo no disponible. Copia y envia este enlace a ${payload.email}${roleNote}.${errorNote}`, payload.link);
         }
@@ -2578,13 +2581,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "DNI", "IP", "Hostname", "Arquitectura", "Area", "Centro de costo",
+        "DNI", "Anexos", "IP", "Hostname", "Arquitectura", "Area", "Centro de costo",
         "Fecha conexion", "Fecha asignacion", "Modelo seguro", "Cuenta solicitud", "Cuenta activo", "Cuenta cesado", "Motivo"
       ];
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
       const rows = data.filas.map(item => `
         <tr>
           <td>${item.dni || "-"}</td>
+          <td>${item.anexo || "-"}</td>
           <td>${item.ip || "-"}</td>
           <td>${item.hostname || "-"}</td>
           <td>${item.arquitectura || "-"}</td>

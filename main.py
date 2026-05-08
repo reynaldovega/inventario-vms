@@ -15,7 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import pandas as pd
-from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -540,6 +540,14 @@ def send_link_email(destino: str, asunto: str, titulo: str, descripcion: str, li
     enviar_correo_html(destino, asunto, texto, html)
 
 
+def send_link_email_safely(destino: str, asunto: str, titulo: str, descripcion: str, link: str) -> None:
+    try:
+        send_link_email(destino, asunto, titulo, descripcion, link)
+    except Exception as exc:
+        mail_error = f"{type(exc).__name__}: {exc}"
+        print(f"[ERROR] No se pudo enviar enlace a {destino}: {mail_error}", flush=True)
+
+
 def load_users_from_env() -> dict:
     raw_users = os.getenv("APP_USERS_JSON", "").strip()
     if not raw_users:
@@ -848,6 +856,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed = pd.DataFrame()
     processed["ip"] = safe_col(raw, 0).map(clean_value).str.strip()
     processed["so"] = safe_col(raw, 1).map(clean_value)
+    processed["anexo"] = safe_col(raw, 2).map(clean_value)
     processed["area"] = safe_col(raw, 3).map(clean_value)
     processed["centro_costo"] = safe_col(raw, 4).map(clean_value)
     processed["dni"] = safe_col(raw, 5).map(clean_value)
@@ -896,6 +905,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
                 "dni",
                 "nombre_completo",
                 "ip",
+                "anexo",
                 "tipo_entorno",
                 "hostname",
                 "ticket",
@@ -1109,7 +1119,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "nombre_completo", "area", "centro_costo", "cargo2_ab", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo2_ab", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
@@ -1317,7 +1327,8 @@ def smart_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
     normalized_fields = {
         field: df[field].map(normalize_text)
-        for field in ["dni", "ip", "hostname", "ticket", "area", "centro_costo", "cargo2_ab", "so"]
+        for field in ["dni", "ip", "anexo", "hostname", "ticket", "area", "centro_costo", "cargo2_ab", "so"]
+        if field in df.columns
     }
 
     for group in terms:
@@ -1388,37 +1399,50 @@ def ticket_summary(df: pd.DataFrame, limit: int = 12) -> list[dict]:
 
     dni_mask = has_valid_dni(subset["dni"])
     ip_mask = has_valid_ip(subset["ip"])
+    countable = subset[dni_mask].copy()
+    if countable.empty:
+        return []
+
+    countable["_dni_norm"] = countable["dni"].map(normalize_text)
+    countable["_has_ip"] = has_valid_ip(countable["ip"]).astype(int)
+    countable["_modelo_si"] = (countable["modelo_seguro"] == "SI").astype(int)
+    countable["_modelo_no"] = (countable["modelo_seguro"] == "NO").astype(int)
+    countable = countable.sort_values(
+        by=["ticket", "_dni_norm", "_has_ip", "_modelo_si", "_modelo_no"],
+        ascending=[True, True, False, False, False],
+    ).drop_duplicates(subset=["ticket", "_dni_norm"], keep="first")
+    unique_ip_mask = has_valid_ip(countable["ip"])
 
     solicitudes = (
-        subset[dni_mask]
+        countable
         .groupby("ticket")
         .size()
         .reset_index(name="solicitudes")
     )
 
     activos = (
-        subset[dni_mask & ip_mask]
+        countable[unique_ip_mask]
         .groupby("ticket")
         .size()
         .reset_index(name="activos")
     )
 
     cesados = (
-        subset[dni_mask & ~ip_mask]
+        countable[~unique_ip_mask]
         .groupby("ticket")
         .size()
         .reset_index(name="cesados")
     )
 
     modelo_si = (
-        subset[dni_mask & ip_mask & (subset["modelo_seguro"] == "SI")]
+        countable[unique_ip_mask & (countable["modelo_seguro"] == "SI")]
         .groupby("ticket")
         .size()
         .reset_index(name="modelo_seguro_si")
     )
 
     modelo_no = (
-        subset[dni_mask & ip_mask & (subset["modelo_seguro"] == "NO")]
+        countable[unique_ip_mask & (countable["modelo_seguro"] == "NO")]
         .groupby("ticket")
         .size()
         .reset_index(name="personal_nuevo_no")
@@ -1608,6 +1632,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
                 "estado",
                 "tipo_entorno",
                 "arquitectura",
+                "anexo",
                 "dni",
                 "nombre_completo",
                 "ip",
@@ -1627,6 +1652,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
             "estado": scoped["estado"],
             "tipo_entorno": scoped["tipo_entorno"],
             "arquitectura": scoped["so"],
+            "anexo": scoped["anexo"] if "anexo" in scoped else "",
             "dni": scoped["dni"],
             "nombre_completo": scoped["nombre_completo"],
             "ip": scoped["ip"],
@@ -1650,6 +1676,7 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
             "estado": scoped["estado"] if "estado" in scoped else "",
             "tipo_entorno": scoped["tipo_entorno"] if "tipo_entorno" in scoped else "",
             "arquitectura": scoped["so"] if "so" in scoped else "",
+            "anexo": scoped["anexo"] if "anexo" in scoped else "",
             "dni": scoped["dni"] if "dni" in scoped else "",
             "nombre_completo": scoped["nombre_completo"] if "nombre_completo" in scoped else "",
             "ip": scoped["ip"] if "ip" in scoped else "",
@@ -1676,6 +1703,7 @@ def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "estado_cruce",
         "ip",
+        "anexo",
         "dni",
         "nombre_completo",
         "area",
@@ -1760,6 +1788,28 @@ def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
         else ("CESADO" if int(row["cuenta_cesado"]) == 1 else "NO CUENTA"),
         axis=1,
     )
+    scoped["_dni_norm"] = scoped["dni"].map(normalize_text)
+    scoped["_has_ip"] = ip_mask.astype(int)
+    scoped["_modelo_si"] = (scoped["modelo_seguro"] == "SI").astype(int)
+    scoped["_modelo_no"] = (scoped["modelo_seguro"] == "NO").astype(int)
+    counted_index = (
+        scoped[ticket_mask & dni_mask]
+        .sort_values(
+            by=["_dni_norm", "_has_ip", "_modelo_si", "_modelo_no"],
+            ascending=[True, False, False, False],
+        )
+        .drop_duplicates(subset=["_dni_norm"], keep="first")
+        .index
+    )
+    duplicate_countable = (ticket_mask & dni_mask) & ~scoped.index.isin(counted_index)
+    scoped.loc[duplicate_countable, [
+        "cuenta_solicitud",
+        "cuenta_activo",
+        "cuenta_cesado",
+        "modelo_seguro_activo_si",
+        "modelo_seguro_activo_no",
+    ]] = 0
+    scoped.loc[duplicate_countable, "motivo_conteo"] = "NO CUENTA - DNI REPETIDO"
 
     filas = build_standard_export(scoped)
     filas["cuenta_solicitud"] = scoped["cuenta_solicitud"].astype(int).values
@@ -1769,7 +1819,7 @@ def build_ticket_audit(ticket: str, tipo_entorno: str = "todos") -> dict:
 
     resumen = {
         "filas_totales": int(len(scoped)),
-        "solicitudes_ticket_dni": int((ticket_mask & dni_mask).sum()),
+        "solicitudes_ticket_dni": int(scoped["cuenta_solicitud"].sum()),
         "activos": int(scoped["cuenta_activo"].sum()),
         "cesados": int(scoped["cuenta_cesado"].sum()),
         "modelo_seguro_si_activo": int(scoped["modelo_seguro_activo_si"].sum()),
@@ -2022,7 +2072,7 @@ def access_link(token: str = Query(default="")):
 
 
 @app.post("/admin/invitations")
-async def create_invitation(request: Request):
+async def create_invitation(request: Request, background_tasks: BackgroundTasks):
     require_permission(request, "invitaciones")
     body = await request.json()
     email = str(body.get("email", "")).strip().lower()
@@ -2051,21 +2101,14 @@ async def create_invitation(request: Request):
             existing_username,
             {"email": email, "role": USERS[existing_username].get("role", ""), "role_updated": role_updated, "expires_hours": 48},
         )
-        mail_sent = True
-        try:
-            send_link_email(
-                email,
-                "Acceso a Inventario VMS",
-                "Acceso a la plataforma",
-                "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
-                link,
-            )
-        except Exception as exc:
-            mail_sent = False
-            mail_error = f"{type(exc).__name__}: {exc}"
-            print(f"[ERROR] No se pudo enviar enlace de acceso a {email}: {mail_error}", flush=True)
-        else:
-            mail_error = ""
+        background_tasks.add_task(
+            send_link_email_safely,
+            email,
+            "Acceso a Inventario VMS",
+            "Acceso a la plataforma",
+            "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
+            link,
+        )
         return {
             "ok": True,
             "existing": True,
@@ -2074,8 +2117,9 @@ async def create_invitation(request: Request):
             "role": USERS[existing_username].get("role", ""),
             "role_updated": role_updated,
             "link": link,
-            "mail_sent": mail_sent,
-            "mail_error": mail_error if SHOW_MAIL_ERROR_DETAILS else "",
+            "mail_sent": False,
+            "mail_pending": True,
+            "mail_error": "",
         }
 
     token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
@@ -2092,22 +2136,15 @@ async def create_invitation(request: Request):
     save_json_file(INVITES_STORE_PATH, invite_store)
 
     link = build_public_url(request, token, "invite")
-    mail_sent = True
-    try:
-        send_link_email(
-            email,
-            "Invitacion de acceso | Inventario VMS",
-            "Invitacion de acceso",
-            "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
-            link,
-        )
-    except Exception as exc:
-        mail_sent = False
-        mail_error = f"{type(exc).__name__}: {exc}"
-        print(f"[ERROR] No se pudo enviar invitacion a {email}: {mail_error}", flush=True)
-    else:
-        mail_error = ""
-    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": mail_sent, "mail_error": mail_error if SHOW_MAIL_ERROR_DETAILS else ""}
+    background_tasks.add_task(
+        send_link_email_safely,
+        email,
+        "Invitacion de acceso | Inventario VMS",
+        "Invitacion de acceso",
+        "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
+        link,
+    )
+    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": False, "mail_pending": True, "mail_error": ""}
 
 
 @app.post("/accept-invite")
