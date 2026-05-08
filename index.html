@@ -1235,13 +1235,11 @@
         <div class="panel" id="adminPasswordResetPanel">
           <h2>Restablecer contrasena</h2>
           <div class="inline-form">
-            <select id="resetUserSelect">
-              <option value="">Selecciona usuario</option>
-            </select>
-            <input type="text" id="resetUserEmail" placeholder="Correo configurado" readonly>
+            <input type="text" id="resetUsername" placeholder="Usuario">
+            <input type="email" id="resetUserEmail" placeholder="Correo">
             <button onclick="restablecerPasswordUsuario()" type="button">Enviar contrasena temporal</button>
           </div>
-          <div class="helper">La contrasena temporal se envia al correo configurado en Render. En el siguiente ingreso se pedira cambiarla.</div>
+          <div class="helper">La contrasena temporal se envia al correo indicado. En el siguiente ingreso se pedira cambiarla.</div>
           <div class="helper" id="resetPasswordStatus"></div>
         </div>
       </section>
@@ -1293,7 +1291,6 @@
     let dashboardLoadedOnce = false;
     let currentApplications = [];
     let applicationColumnFilters = {};
-    let adminUsers = [];
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
@@ -2552,46 +2549,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function cargarUsuariosAdmin() {
-      const select = document.getElementById("resetUserSelect");
-      const emailInput = document.getElementById("resetUserEmail");
-      if (!select || !emailInput) return;
       if (!currentUser?.is_super_admin) return;
-      try {
-        const payload = await jsonFetch(`${apiBase}/admin/users`);
-        adminUsers = payload.users || [];
-        select.innerHTML = `<option value="">Selecciona usuario</option>` + adminUsers.map((user) => {
-          const email = user.email_hint ? ` - ${user.email_hint}` : " - sin correo";
-          const pending = user.password_must_change ? " - cambio pendiente" : "";
-          return `<option value="${escapeHtml(user.username)}" ${user.has_email ? "" : "disabled"}>${escapeHtml(user.display_name)} (${escapeHtml(user.username)})${escapeHtml(email)}${escapeHtml(pending)}</option>`;
-        }).join("");
-        actualizarCorreoReset();
-      } catch (error) {
-        document.getElementById("resetPasswordStatus").textContent = error.message || "No se pudo cargar usuarios.";
-      }
-    }
-
-    function actualizarCorreoReset() {
-      const username = document.getElementById("resetUserSelect").value;
-      const emailInput = document.getElementById("resetUserEmail");
-      const user = adminUsers.find((item) => item.username === username);
-      emailInput.value = user?.email || user?.email_hint || "";
+      document.getElementById("resetPasswordStatus").textContent = "";
     }
 
     async function restablecerPasswordUsuario() {
       const status = document.getElementById("resetPasswordStatus");
-      const username = document.getElementById("resetUserSelect").value;
+      const username = document.getElementById("resetUsername").value.trim();
+      const email = document.getElementById("resetUserEmail").value.trim();
       status.textContent = "";
-      if (!username) {
-        status.textContent = "Selecciona un usuario con correo configurado.";
+      if (!username || !email) {
+        status.textContent = "Escribe el usuario y el correo.";
         return;
       }
       try {
         const payload = await jsonFetch(`${apiBase}/admin/password-reset`, {
           method: "POST",
-          body: JSON.stringify({ username }),
+          body: JSON.stringify({ username, email }),
         });
         status.textContent = payload.message || "Contrasena temporal enviada.";
-        await cargarUsuariosAdmin();
       } catch (error) {
         status.textContent = error.message || "No se pudo restablecer la contrasena.";
       }
@@ -2861,8 +2837,6 @@ function limpiar() {
     ["dashAreaFilter", "dashCentroFilter", "dashCargo2Filter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
     });
-
-    document.getElementById("resetUserSelect")?.addEventListener("change", actualizarCorreoReset);
 
     ["dashQuery", "dashDniFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("keydown", (event) => {

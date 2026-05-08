@@ -2240,10 +2240,9 @@ async def admin_password_reset(request: Request):
     admin_user = require_super_admin(request)
     body = await request.json()
     username = str(body.get("username", "")).strip().lower()
+    requested_email = clean_value(body.get("email", "")).lower()
     if not username:
         raise HTTPException(status_code=400, detail="Selecciona un usuario")
-    if username not in ENV_USERNAMES:
-        raise HTTPException(status_code=404, detail="El usuario no esta en la lista configurada de Render")
 
     target_user = USERS.get(username)
     if not target_user:
@@ -2252,9 +2251,9 @@ async def admin_password_reset(request: Request):
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
         target_user = env_user.copy()
 
-    email = clean_value(target_user.get("email", "")).lower()
+    email = requested_email or clean_value(target_user.get("email", "")).lower()
     if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="El usuario no tiene un correo configurado en Render")
+        raise HTTPException(status_code=400, detail="Indica un correo valido")
 
     temporary_password = generate_temporary_password(
         username,
@@ -2263,6 +2262,7 @@ async def admin_password_reset(request: Request):
     )
     previous_user = target_user.copy()
     updated_user = target_user.copy()
+    updated_user["email"] = email
     updated_user["password"] = hash_password(temporary_password)
     updated_user["password_changed_at"] = now_ts()
     updated_user["force_password_change"] = True
