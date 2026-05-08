@@ -1224,6 +1224,17 @@
           </div>
           <div class="helper" id="inviteStatus"></div>
         </div>
+        <div class="panel hidden" id="adminPasswordResetPanel" style="margin-top: 18px;">
+          <h2>Restablecer contrasena</h2>
+          <div class="inline-form">
+            <select id="resetUserSelect">
+              <option value="">Selecciona usuario</option>
+            </select>
+            <button onclick="restablecerPasswordUsuario()" type="button">Enviar contrasena temporal</button>
+          </div>
+          <div class="helper">La contrasena temporal se envia al correo configurado en Render. En el siguiente ingreso se pedira cambiarla.</div>
+          <div class="helper" id="resetPasswordStatus"></div>
+        </div>
       </section>
     </div>
 
@@ -1617,6 +1628,7 @@
       document.getElementById("tabAppsBtn").classList.toggle("hidden", !hasPermission("aplicaciones_tto"));
       document.getElementById("tabDashboardBtn").classList.toggle("hidden", !hasPermission("dashboard_vms"));
       document.getElementById("tabAdminBtn").classList.toggle("hidden", !hasPermission("invitaciones"));
+      document.getElementById("adminPasswordResetPanel")?.classList.toggle("hidden", !currentUser?.is_super_admin);
       document.querySelectorAll(".auth-only").forEach((item) => {
         item.classList.remove("hidden");
       });
@@ -1656,6 +1668,7 @@
       });
       if (name === "apps") cargarAplicaciones();
       if (name === "dashboard") cargarDashboardVms();
+      if (name === "admin") cargarUsuariosAdmin();
     }
 
     async function loadSession() {
@@ -2521,6 +2534,45 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } catch (error) {
         status.textContent = error.message;
+      }
+    }
+
+    async function cargarUsuariosAdmin() {
+      const panel = document.getElementById("adminPasswordResetPanel");
+      const select = document.getElementById("resetUserSelect");
+      if (!panel || !select) return;
+      panel.classList.toggle("hidden", !currentUser?.is_super_admin);
+      if (!currentUser?.is_super_admin) return;
+      try {
+        const payload = await jsonFetch(`${apiBase}/admin/users`);
+        const users = payload.users || [];
+        select.innerHTML = `<option value="">Selecciona usuario</option>` + users.map((user) => {
+          const email = user.email_hint ? ` - ${user.email_hint}` : " - sin correo";
+          const pending = user.password_must_change ? " - cambio pendiente" : "";
+          return `<option value="${escapeHtml(user.username)}" ${user.has_email ? "" : "disabled"}>${escapeHtml(user.display_name)} (${escapeHtml(user.username)})${escapeHtml(email)}${escapeHtml(pending)}</option>`;
+        }).join("");
+      } catch (error) {
+        document.getElementById("resetPasswordStatus").textContent = error.message || "No se pudo cargar usuarios.";
+      }
+    }
+
+    async function restablecerPasswordUsuario() {
+      const status = document.getElementById("resetPasswordStatus");
+      const username = document.getElementById("resetUserSelect").value;
+      status.textContent = "";
+      if (!username) {
+        status.textContent = "Selecciona un usuario con correo configurado.";
+        return;
+      }
+      try {
+        const payload = await jsonFetch(`${apiBase}/admin/password-reset`, {
+          method: "POST",
+          body: JSON.stringify({ username }),
+        });
+        status.textContent = payload.message || "Contrasena temporal enviada.";
+        await cargarUsuariosAdmin();
+      } catch (error) {
+        status.textContent = error.message || "No se pudo restablecer la contrasena.";
       }
     }
 
