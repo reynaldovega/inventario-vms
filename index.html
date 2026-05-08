@@ -899,6 +899,7 @@
       <button class="tab-button restricted-tab hidden" id="tabAppsBtn" onclick="showTab('apps')" type="button">Aplicaciones TTO</button>
       <button class="tab-button restricted-tab hidden" id="tabDashboardBtn" onclick="showTab('dashboard')" type="button">Dashboard</button>
       <button class="tab-button admin-only hidden" id="tabAdminBtn" onclick="showTab('admin')" type="button">Invitaciones</button>
+      <button class="tab-button super-admin-only hidden" id="tabResetBtn" onclick="showTab('reset')" type="button">Restablecer contrasena</button>
       <button class="tab-button auth-only hidden" id="tabPasswordBtn" onclick="showTab('password')" type="button">Cambiar contrasena</button>
     </nav>
 
@@ -1224,12 +1225,20 @@
           </div>
           <div class="helper" id="inviteStatus"></div>
         </div>
-        <div class="panel hidden" id="adminPasswordResetPanel" style="margin-top: 18px;">
+      </section>
+    </div>
+
+    <div class="tab-pane hidden" id="tabReset">
+      <section class="hero">
+        <h1>Restablecer contrasena</h1>
+        <p class="subtitle">Genera una contrasena temporal para un usuario y enviala al correo configurado en Render.</p>
+        <div class="panel" id="adminPasswordResetPanel">
           <h2>Restablecer contrasena</h2>
           <div class="inline-form">
             <select id="resetUserSelect">
               <option value="">Selecciona usuario</option>
             </select>
+            <input type="text" id="resetUserEmail" placeholder="Correo configurado" readonly>
             <button onclick="restablecerPasswordUsuario()" type="button">Enviar contrasena temporal</button>
           </div>
           <div class="helper">La contrasena temporal se envia al correo configurado en Render. En el siguiente ingreso se pedira cambiarla.</div>
@@ -1284,6 +1293,7 @@
     let dashboardLoadedOnce = false;
     let currentApplications = [];
     let applicationColumnFilters = {};
+    let adminUsers = [];
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
@@ -1574,7 +1584,7 @@
           panel.classList.remove("dashboard-exportable");
           panel.removeAttribute("title");
         });
-        document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
+        document.querySelectorAll(".restricted-tab, .admin-only, .super-admin-only").forEach((item) => item.classList.add("hidden"));
         document.querySelectorAll(".auth-only").forEach((item) => item.classList.add("hidden"));
         showTab("inventario");
         return;
@@ -1592,7 +1602,7 @@
         exportButton.classList.add("hidden");
         document.querySelectorAll("[data-export-segment]").forEach((card) => card.classList.remove("exportable"));
         document.querySelectorAll("[data-dashboard-export]").forEach((panel) => panel.classList.remove("dashboard-exportable"));
-        document.querySelectorAll(".restricted-tab, .admin-only").forEach((item) => item.classList.add("hidden"));
+        document.querySelectorAll(".restricted-tab, .admin-only, .super-admin-only").forEach((item) => item.classList.add("hidden"));
         document.querySelectorAll(".auth-only").forEach((item) => item.classList.remove("hidden"));
         showTab("password");
         return;
@@ -1628,7 +1638,7 @@
       document.getElementById("tabAppsBtn").classList.toggle("hidden", !hasPermission("aplicaciones_tto"));
       document.getElementById("tabDashboardBtn").classList.toggle("hidden", !hasPermission("dashboard_vms"));
       document.getElementById("tabAdminBtn").classList.toggle("hidden", !hasPermission("invitaciones"));
-      document.getElementById("adminPasswordResetPanel")?.classList.toggle("hidden", !currentUser?.is_super_admin);
+      document.getElementById("tabResetBtn").classList.toggle("hidden", !currentUser?.is_super_admin);
       document.querySelectorAll(".auth-only").forEach((item) => {
         item.classList.remove("hidden");
       });
@@ -1639,6 +1649,8 @@
           showTab("dashboard");
         } else if (hasPermission("invitaciones")) {
           showTab("admin");
+        } else if (currentUser?.is_super_admin) {
+          showTab("reset");
         } else {
           showTab("password");
         }
@@ -1651,6 +1663,7 @@
         apps: "tabApps",
         dashboard: "tabDashboard",
         admin: "tabAdmin",
+        reset: "tabReset",
         password: "tabPassword",
       };
       const buttons = {
@@ -1658,6 +1671,7 @@
         apps: "tabAppsBtn",
         dashboard: "tabDashboardBtn",
         admin: "tabAdminBtn",
+        reset: "tabResetBtn",
         password: "tabPasswordBtn",
       };
       Object.entries(panes).forEach(([key, id]) => {
@@ -1668,7 +1682,7 @@
       });
       if (name === "apps") cargarAplicaciones();
       if (name === "dashboard") cargarDashboardVms();
-      if (name === "admin") cargarUsuariosAdmin();
+      if (name === "reset") cargarUsuariosAdmin();
     }
 
     async function loadSession() {
@@ -2538,22 +2552,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function cargarUsuariosAdmin() {
-      const panel = document.getElementById("adminPasswordResetPanel");
       const select = document.getElementById("resetUserSelect");
-      if (!panel || !select) return;
-      panel.classList.toggle("hidden", !currentUser?.is_super_admin);
+      const emailInput = document.getElementById("resetUserEmail");
+      if (!select || !emailInput) return;
       if (!currentUser?.is_super_admin) return;
       try {
         const payload = await jsonFetch(`${apiBase}/admin/users`);
-        const users = payload.users || [];
-        select.innerHTML = `<option value="">Selecciona usuario</option>` + users.map((user) => {
+        adminUsers = payload.users || [];
+        select.innerHTML = `<option value="">Selecciona usuario</option>` + adminUsers.map((user) => {
           const email = user.email_hint ? ` - ${user.email_hint}` : " - sin correo";
           const pending = user.password_must_change ? " - cambio pendiente" : "";
           return `<option value="${escapeHtml(user.username)}" ${user.has_email ? "" : "disabled"}>${escapeHtml(user.display_name)} (${escapeHtml(user.username)})${escapeHtml(email)}${escapeHtml(pending)}</option>`;
         }).join("");
+        actualizarCorreoReset();
       } catch (error) {
         document.getElementById("resetPasswordStatus").textContent = error.message || "No se pudo cargar usuarios.";
       }
+    }
+
+    function actualizarCorreoReset() {
+      const username = document.getElementById("resetUserSelect").value;
+      const emailInput = document.getElementById("resetUserEmail");
+      const user = adminUsers.find((item) => item.username === username);
+      emailInput.value = user?.email || user?.email_hint || "";
     }
 
     async function restablecerPasswordUsuario() {
@@ -2840,6 +2861,8 @@ function limpiar() {
     ["dashAreaFilter", "dashCentroFilter", "dashCargo2Filter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
     });
+
+    document.getElementById("resetUserSelect")?.addEventListener("change", actualizarCorreoReset);
 
     ["dashQuery", "dashDniFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("keydown", (event) => {

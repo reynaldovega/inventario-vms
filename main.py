@@ -64,7 +64,7 @@ PASSWORD_MAX_AGE_SECONDS = int(os.getenv("PASSWORD_MAX_AGE_SECONDS", str(90 * 24
 PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
-SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin").strip().lower() or "admin"
+SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "").strip().lower()
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
@@ -883,10 +883,10 @@ def require_permission(request: Request, permission: str) -> dict:
 
 
 def is_super_admin(user: dict) -> bool:
-    return (
-        str(user.get("username", "")).strip().lower() == SUPER_ADMIN_USERNAME
-        and normalize_role(user.get("role", "")) == "admin"
-    )
+    if normalize_role(user.get("role", "")) != "admin":
+        return False
+    username = str(user.get("username", "")).strip().lower()
+    return not SUPER_ADMIN_USERNAME or username == SUPER_ADMIN_USERNAME
 
 
 def require_super_admin(request: Request) -> dict:
@@ -2226,6 +2226,7 @@ def admin_users(request: Request):
                 "username": username,
                 "display_name": clean_value(user.get("display_name", username)) or username,
                 "role": user.get("role", ""),
+                "email": email,
                 "email_hint": mask_email(email) if email else "",
                 "has_email": bool(email and "@" in email),
                 "password_must_change": password_requires_change({"username": username, **user}),
