@@ -478,7 +478,8 @@
 
     .apps-panel {
       padding: 12px;
-      max-width: 1180px;
+      width: min(100%, 1320px);
+      max-width: calc(100vw - 40px);
       margin-left: auto;
       margin-right: auto;
     }
@@ -489,7 +490,7 @@
     }
 
     #tablaAplicaciones {
-      min-width: 1320px;
+      min-width: 1510px;
       table-layout: fixed;
     }
 
@@ -520,36 +521,113 @@
       height: 24px;
     }
 
-    #tablaAplicaciones th:nth-child(1),
-    #tablaAplicaciones td:nth-child(1) { width: 64px; }
-    #tablaAplicaciones th:nth-child(2),
-    #tablaAplicaciones td:nth-child(2) { width: 76px; }
-    #tablaAplicaciones th:nth-child(3),
-    #tablaAplicaciones td:nth-child(3) { width: 78px; }
-    #tablaAplicaciones th:nth-child(4),
-    #tablaAplicaciones td:nth-child(4) { width: 120px; }
-    #tablaAplicaciones th:nth-child(5),
-    #tablaAplicaciones td:nth-child(5) { width: 110px; }
-    #tablaAplicaciones th:nth-child(6),
-    #tablaAplicaciones td:nth-child(6) { width: 125px; }
-    #tablaAplicaciones th:nth-child(7),
-    #tablaAplicaciones td:nth-child(7) { width: 74px; }
-    #tablaAplicaciones th:nth-child(8),
-    #tablaAplicaciones td:nth-child(8) { width: 82px; }
-    #tablaAplicaciones th:nth-child(9),
-    #tablaAplicaciones td:nth-child(9) { width: 126px; }
-    #tablaAplicaciones th:nth-child(10),
-    #tablaAplicaciones td:nth-child(10) { width: 104px; }
-    #tablaAplicaciones th:nth-child(11),
-    #tablaAplicaciones td:nth-child(11) { width: 92px; }
-    #tablaAplicaciones th:nth-child(12),
-    #tablaAplicaciones td:nth-child(12) { width: 70px; }
-    #tablaAplicaciones th:nth-child(13),
-    #tablaAplicaciones td:nth-child(13) { width: 90px; }
-    #tablaAplicaciones th:nth-child(14),
-    #tablaAplicaciones td:nth-child(14) { width: 92px; }
-    #tablaAplicaciones th:nth-child(15),
-    #tablaAplicaciones td:nth-child(15) { width: 107px; }
+    #tablaAplicaciones .row-number-col { width: 46px; text-align: center; }
+    #tablaAplicaciones .row-delete-col { width: 120px; text-align: center; }
+    #tablaAplicaciones th[data-app-col="estado_alerta"],
+    #tablaAplicaciones td[data-app-col="estado_alerta"] { width: 64px; }
+    #tablaAplicaciones th[data-app-col="last_action"],
+    #tablaAplicaciones td[data-app-col="last_action"] { width: 76px; }
+    #tablaAplicaciones th[data-app-col="dni"],
+    #tablaAplicaciones td[data-app-col="dni"] { width: 78px; }
+    #tablaAplicaciones th[data-app-col="nombre_completo"],
+    #tablaAplicaciones td[data-app-col="nombre_completo"] { width: 120px; }
+    #tablaAplicaciones th[data-app-col="hostname"],
+    #tablaAplicaciones td[data-app-col="hostname"] { width: 110px; }
+    #tablaAplicaciones th[data-app-col="processor"],
+    #tablaAplicaciones td[data-app-col="processor"] { width: 125px; }
+    #tablaAplicaciones th[data-app-col="memory_ram"],
+    #tablaAplicaciones td[data-app-col="memory_ram"] { width: 74px; }
+    #tablaAplicaciones th[data-app-col="disk"],
+    #tablaAplicaciones td[data-app-col="disk"] { width: 82px; }
+    #tablaAplicaciones th[data-app-col="windows_version"],
+    #tablaAplicaciones td[data-app-col="windows_version"] { width: 126px; }
+    #tablaAplicaciones th[data-app-col="windows_license"],
+    #tablaAplicaciones td[data-app-col="windows_license"] { width: 104px; }
+    #tablaAplicaciones th[data-app-col="internet"],
+    #tablaAplicaciones td[data-app-col="internet"] { width: 92px; }
+    #tablaAplicaciones th[data-app-col="carbon_black_installed"],
+    #tablaAplicaciones td[data-app-col="carbon_black_installed"] { width: 70px; }
+    #tablaAplicaciones th[data-app-col="anyconnect_installed"],
+    #tablaAplicaciones td[data-app-col="anyconnect_installed"] { width: 90px; }
+    #tablaAplicaciones th[data-app-col="rdp_remote_ips"],
+    #tablaAplicaciones td[data-app-col="rdp_remote_ips"] { width: 92px; }
+    #tablaAplicaciones th[data-app-col="reported_at"],
+    #tablaAplicaciones td[data-app-col="reported_at"] { width: 107px; }
+
+    .row-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 26px;
+      height: 24px;
+      border-radius: 999px;
+      background: #f8f1e5;
+      color: var(--brand-dark);
+      font-weight: 700;
+    }
+
+    .delete-cell,
+    .delete-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 28px;
+    }
+
+    .delete-cell input,
+    .delete-header input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--danger);
+      cursor: pointer;
+    }
+
+    .row-delete-button,
+    .bulk-delete-button {
+      border-radius: 999px;
+      min-width: 0;
+      padding: 6px 9px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      line-height: 1;
+      background: #fff4ee;
+      color: var(--danger);
+      border: 1px solid rgba(198, 91, 61, 0.28);
+      box-shadow: none;
+    }
+
+    .row-delete-button:hover,
+    .bulk-delete-button:hover {
+      background: var(--danger);
+      color: white;
+    }
+
+    .bulk-delete-button {
+      position: relative;
+      overflow: hidden;
+      padding: 7px 10px;
+      animation: deletePulse 1.8s ease-in-out infinite;
+    }
+
+    .bulk-delete-button::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      transform: translateX(-120%);
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), transparent);
+      animation: deleteShine 2.3s ease-in-out infinite;
+    }
+
+    @keyframes deletePulse {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-1px) scale(1.04); }
+    }
+
+    @keyframes deleteShine {
+      0%, 35% { transform: translateX(-120%); }
+      70%, 100% { transform: translateX(120%); }
+    }
 
     .badge {
       display: inline-flex;
@@ -1291,6 +1369,7 @@
     let dashboardLoadedOnce = false;
     let currentApplications = [];
     let applicationColumnFilters = {};
+    let applicationRowSequence = 0;
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
@@ -2118,6 +2197,23 @@ document.addEventListener("DOMContentLoaded", () => {
       return item[key] || "-";
     }
 
+    function updateApplicationSelectionState() {
+      const table = document.getElementById("tablaAplicaciones");
+      const visibleChecks = Array.from(table.querySelectorAll(".app-row-check"))
+        .filter(input => input.closest("tr").style.display !== "none");
+      const selected = visibleChecks.filter(input => input.checked);
+      const selectAll = document.getElementById("appsSelectAll");
+      const bulkButton = document.getElementById("appsBulkDelete");
+      if (selectAll) {
+        selectAll.checked = visibleChecks.length > 0 && selected.length === visibleChecks.length;
+        selectAll.indeterminate = selected.length > 0 && selected.length < visibleChecks.length;
+      }
+      if (bulkButton) {
+        bulkButton.textContent = selected.length ? `Eliminar ${selected.length}` : "Eliminar";
+        bulkButton.disabled = selected.length === 0;
+      }
+    }
+
     function applyApplicationColumnFilters() {
       const table = document.getElementById("tablaAplicaciones");
       const filters = Object.entries(applicationColumnFilters)
@@ -2134,11 +2230,14 @@ document.addEventListener("DOMContentLoaded", () => {
         row.style.display = matches ? "" : "none";
         if (matches) {
           visible += 1;
+          const numberCell = row.querySelector(".row-number");
+          if (numberCell) numberCell.textContent = visible;
           if (row.dataset.alerta === "ALERTA") alertas += 1;
         }
       });
       setText("appsTotal", visible);
       setText("appsAlertas", alertas);
+      updateApplicationSelectionState();
     }
 
     function applicationFilterParams() {
@@ -2153,7 +2252,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderApplications(data) {
-      currentApplications = Array.isArray(data) ? data : [];
+      currentApplications = (Array.isArray(data) ? data : []).map(item => ({
+        ...item,
+        _appRowId: item._appRowId || `app-row-${applicationRowSequence++}`,
+      }));
       const table = document.getElementById("tablaAplicaciones");
       if (!currentApplications.length) {
         setText("appsTotal", 0);
@@ -2163,13 +2265,33 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const head = `
         <thead>
-          <tr>${applicationColumns.map(item => `<th>${item.label}</th>`).join("")}</tr>
-          <tr class="column-filter-row">${applicationColumns.map(item => `
-            <th><input type="text" data-app-filter="${item.key}" value="${escapeHtml(applicationColumnFilters[item.key] || "")}" placeholder="Filtrar"></th>
-          `).join("")}</tr>
+          <tr>
+            <th class="row-number-col">N</th>
+            <th class="row-delete-col">
+              <div class="delete-header">
+                <input type="checkbox" id="appsSelectAll" title="Seleccionar filas visibles">
+                <button class="bulk-delete-button" id="appsBulkDelete" type="button" disabled>Eliminar</button>
+              </div>
+            </th>
+            ${applicationColumns.map(item => `<th data-app-col="${item.key}">${item.label}</th>`).join("")}
+          </tr>
+          <tr class="column-filter-row">
+            <th class="row-number-col"></th>
+            <th class="row-delete-col"></th>
+            ${applicationColumns.map(item => `
+              <th data-app-col="${item.key}"><input type="text" data-app-filter="${item.key}" value="${escapeHtml(applicationColumnFilters[item.key] || "")}" placeholder="Filtrar"></th>
+            `).join("")}
+          </tr>
         </thead>`;
       const rows = currentApplications.map(item => `
-        <tr class="${item.estado_alerta === "ALERTA" ? "danger-row" : ""}" data-alerta="${escapeHtml(item.estado_alerta || "")}">
+        <tr class="${item.estado_alerta === "ALERTA" ? "danger-row" : ""}" data-alerta="${escapeHtml(item.estado_alerta || "")}" data-app-row-id="${escapeHtml(item._appRowId)}">
+          <td class="row-number-col"><span class="row-number"></span></td>
+          <td class="row-delete-col">
+            <div class="delete-cell">
+              <input type="checkbox" class="app-row-check" title="Seleccionar fila">
+              <button class="row-delete-button" type="button" data-delete-app-row="${escapeHtml(item._appRowId)}">Eliminar</button>
+            </div>
+          </td>
           ${applicationColumns.map(column => `<td data-app-col="${column.key}">${escapeHtml(getApplicationCellValue(item, column.key))}</td>`).join("")}
         </tr>
       `).join("");
@@ -2180,7 +2302,39 @@ document.addEventListener("DOMContentLoaded", () => {
           applyApplicationColumnFilters();
         });
       });
+      table.querySelectorAll("[data-delete-app-row]").forEach(button => {
+        button.addEventListener("click", () => deleteApplicationRow(button.dataset.deleteAppRow));
+      });
+      table.querySelectorAll(".app-row-check").forEach(input => {
+        input.addEventListener("change", updateApplicationSelectionState);
+      });
+      const selectAll = document.getElementById("appsSelectAll");
+      if (selectAll) {
+        selectAll.addEventListener("change", () => {
+          table.querySelectorAll(".app-row-check").forEach(input => {
+            if (input.closest("tr").style.display !== "none") input.checked = selectAll.checked;
+          });
+          updateApplicationSelectionState();
+        });
+      }
+      const bulkButton = document.getElementById("appsBulkDelete");
+      if (bulkButton) bulkButton.addEventListener("click", deleteSelectedApplicationRows);
       applyApplicationColumnFilters();
+    }
+
+    function deleteApplicationRow(rowId) {
+      currentApplications = currentApplications.filter(item => item._appRowId !== rowId);
+      renderApplications(currentApplications);
+    }
+
+    function deleteSelectedApplicationRows() {
+      const table = document.getElementById("tablaAplicaciones");
+      const selectedIds = Array.from(table.querySelectorAll(".app-row-check:checked"))
+        .map(input => input.closest("tr").dataset.appRowId);
+      if (!selectedIds.length) return;
+      const selectedSet = new Set(selectedIds);
+      currentApplications = currentApplications.filter(item => !selectedSet.has(item._appRowId));
+      renderApplications(currentApplications);
     }
 
     function formatInternetReport(item) {
