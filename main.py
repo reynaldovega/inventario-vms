@@ -226,12 +226,126 @@ def audit_event(event: str, request: Request | None = None, username: str = "", 
             "event": event,
             "username": username,
             "ip": get_client_ip(request) if request else "",
+            "user_agent": request.headers.get("user-agent", "")[:240] if request else "",
             "details": details or {},
         }
         with (DATA_DIR / "security_audit.log").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
     except Exception as exc:
         print(f"[WARN] No se pudo escribir auditoria: {exc}", flush=True)
+
+
+def audit_status(event: str) -> str:
+    if event in {"login_success", "otp_success", "password_changed", "password_reset_confirmed", "invite_accepted"}:
+        return "ok"
+    if event in {"login_failed", "login_blocked", "otp_failed", "otp_expired", "otp_missing", "otp_send_failed", "login_email_missing"}:
+        return "problem"
+    return "info"
+
+
+def audit_event_label(event: str) -> str:
+    labels = {
+        "login_success": "Acceso correcto",
+        "login_credentials_ok": "Credenciales correctas",
+        "login_failed": "Ingreso fallido",
+        "login_blocked": "Usuario bloqueado temporalmente",
+        "login_email_missing": "Correo de verificacion faltante",
+        "otp_sent": "Codigo OTP enviado",
+        "otp_success": "OTP correcto",
+        "otp_failed": "OTP incorrecto",
+        "otp_expired": "OTP expirado",
+        "otp_missing": "OTP no solicitado",
+        "otp_send_failed": "Fallo al enviar OTP",
+        "logout": "Cierre de sesion",
+        "password_changed": "Contrasena cambiada",
+        "password_reset_confirmed": "Reset confirmado",
+        "admin_password_reset": "Reset enviado por admin",
+        "invite_created": "Invitacion creada",
+        "invite_accepted": "Invitacion aceptada",
+        "access_link_created": "Enlace de acceso creado",
+    }
+    return labels.get(event, event.replace("_", " ").title())
+
+
+def audit_problem_reason(event: str, details: dict) -> str:
+    if event == "login_failed":
+        reason = details.get("reason", "")
+        if reason == "unknown_user":
+            return "Usuario no existe"
+        if reason == "bad_password":
+            return "Contrasena incorrecta"
+        return "Usuario o contrasena incorrecta"
+    if event == "login_blocked":
+        return "Demasiados intentos fallidos"
+    if event == "login_email_missing":
+        return "Usuario sin correo para OTP"
+    if event == "otp_failed":
+        return "Codigo OTP incorrecto"
+    if event == "otp_expired":
+        return "Codigo OTP vencido"
+    if event == "otp_missing":
+        return "No habia codigo OTP activo"
+    if event == "otp_send_failed":
+        return "No se pudo enviar el correo OTP"
+    if bool(details.get("password_must_change")):
+        return "Debe cambiar contrasena"
+    return ""
+
+
+def read_security_audit(limit: int = 300) -> list[dict]:
+    path = DATA_DIR / "security_audit.log"
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return []
+
+    events = []
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        event = str(item.get("event", ""))
+        events.append(
+            {
+                "ts": clean_value(item.get("ts", "")),
+                "event": event,
+                "label": audit_event_label(event),
+                "status": audit_status(event),
+                "username": clean_value(item.get("username", "")) or "-",
+                "ip": clean_value(item.get("ip", "")) or "-",
+                "user_agent": clean_value(item.get("user_agent", "")) or "-",
+                "reason": audit_problem_reason(event, details),
+                "details": details,
+            }
+        )
+        if len(events) >= limit:
+            break
+    return events
+
+
+def summarize_security_audit(events: list[dict]) -> dict:
+    successful_access = [item for item in events if item["event"] in {"login_success", "otp_success"}]
+    problems = [item for item in events if item["status"] == "problem"]
+    blocked = [item for item in events if item["event"] == "login_blocked"]
+    by_user = {}
+    for item in successful_access:
+        username = item["username"]
+        if username not in by_user:
+            by_user[username] = {"username": username, "last_access": item["ts"], "ip": item["ip"], "count": 0}
+        by_user[username]["count"] += 1
+    return {
+        "total_events": len(events),
+        "successful_access": len(successful_access),
+        "problems": len(problems),
+        "blocked": len(blocked),
+        "users": sorted(by_user.values(), key=lambda item: item["last_access"], reverse=True),
+    }
 
 
 def login_attempt_key(username: str, request: Request) -> str:
@@ -252,14 +366,19 @@ def assert_login_not_locked(username: str, request: Request) -> None:
         login_attempts.pop(key, None)
 
 
-def register_login_failure(username: str, request: Request) -> None:
+def register_login_failure(username: str, request: Request, reason: str = "") -> None:
     key = login_attempt_key(username, request)
     item = login_attempts.get(key, {"count": 0, "locked_until": 0})
     item["count"] = int(item.get("count", 0) or 0) + 1
     if item["count"] >= LOGIN_MAX_ATTEMPTS:
         item["locked_until"] = now_ts() + LOGIN_LOCKOUT_SECONDS
     login_attempts[key] = item
-    audit_event("login_failed", request, username, {"attempts": item["count"], "locked": bool(item.get("locked_until"))})
+    audit_event(
+        "login_failed",
+        request,
+        username,
+        {"attempts": item["count"], "locked": bool(item.get("locked_until")), "reason": reason},
+    )
 
 
 def clear_login_failures(username: str, request: Request) -> None:
@@ -2048,18 +2167,22 @@ async def login(request: Request, response: Response):
         user = merged_user
 
     if not user or not verify_password(user["password"], password):
-        register_login_failure(username, request)
+        register_login_failure(username, request, "unknown_user" if not user else "bad_password")
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrecta")
 
     clear_login_failures(username, request)
-    audit_event("login_success", request, username, {"password_must_change": password_requires_change({"username": username, **user})})
+    password_must_change = password_requires_change({"username": username, **user})
 
     if not LOGIN_OTP_ENABLED:
         set_session_cookie(response, username)
+        audit_event("login_success", request, username, {"password_must_change": password_must_change})
         return auth_user_payload(username, user)
+
+    audit_event("login_credentials_ok", request, username, {"password_must_change": password_must_change})
 
     email = clean_value(user.get("email", "")).lower()
     if not email or "@" not in email:
+        audit_event("login_email_missing", request, username)
         raise HTTPException(
             status_code=400,
             detail="Este usuario no tiene un correo configurado para verificacion",
@@ -2080,6 +2203,7 @@ async def login(request: Request, response: Response):
         error_text = f"{type(exc).__name__}: {exc}"
         print(f"[ERROR] No se pudo enviar OTP a {email}: {error_text}", flush=True)
         otp_store.pop(username, None)
+        audit_event("otp_send_failed", request, username, {"email": mask_email(email), "error": error_text[:240]})
         detail = "No se pudo enviar el codigo al correo configurado"
         if SHOW_MAIL_ERROR_DETAILS:
             detail = f"{detail}. SMTP: {error_text}"
@@ -2088,6 +2212,7 @@ async def login(request: Request, response: Response):
             detail=detail,
         )
 
+    audit_event("otp_sent", request, username, {"email": mask_email(email)})
     return {
         "step": "otp",
         "username": username,
@@ -2097,7 +2222,10 @@ async def login(request: Request, response: Response):
 
 
 @app.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
+    user = read_session_token(request.cookies.get(SESSION_COOKIE))
+    if user:
+        audit_event("logout", request, user["username"])
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"ok": True}
 
@@ -2263,6 +2391,13 @@ def admin_users(request: Request):
             }
         )
     return {"users": users}
+
+
+@app.get("/admin/access-monitor")
+def admin_access_monitor(request: Request, limit: int = Query(default=300, ge=1, le=1000)):
+    require_super_admin(request)
+    events = read_security_audit(limit)
+    return {"summary": summarize_security_audit(events), "events": events}
 
 
 @app.post("/admin/password-reset")
@@ -2461,21 +2596,25 @@ async def verify_otp(request: Request, response: Response):
     codigo = str(body.get("codigo", "")).strip()
 
     if username not in otp_store:
+        audit_event("otp_missing", request, username)
         raise HTTPException(status_code=400, detail="No hay codigo")
 
     codigo_guardado, expira = otp_store[username]
 
     if time.time() > expira:
         otp_store.pop(username, None)
+        audit_event("otp_expired", request, username)
         raise HTTPException(status_code=400, detail="Codigo expirado")
 
     if codigo != codigo_guardado:
+        audit_event("otp_failed", request, username)
         raise HTTPException(status_code=400, detail="Codigo incorrecto")
 
     otp_store.pop(username, None)
     set_session_cookie(response, username)
 
     user = USERS[username]
+    audit_event("otp_success", request, username, {"password_must_change": password_requires_change({"username": username, **user})})
     return auth_user_payload(username, user)
 
 @app.post("/upload")

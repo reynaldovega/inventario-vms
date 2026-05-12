@@ -649,6 +649,36 @@
       color: var(--danger);
     }
 
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .status-badge.ok {
+      background: rgba(30, 111, 92, 0.12);
+      color: var(--brand-dark);
+    }
+
+    .status-badge.problem {
+      background: rgba(198, 91, 61, 0.14);
+      color: var(--danger);
+    }
+
+    .status-badge.info {
+      background: rgba(242, 159, 5, 0.16);
+      color: #7a4e02;
+    }
+
+    #tablaAccessMonitor {
+      min-width: 1180px;
+    }
+
     .mini-table {
       width: 100%;
       min-width: 0;
@@ -977,6 +1007,7 @@
       <button class="tab-button restricted-tab hidden" id="tabAppsBtn" onclick="showTab('apps')" type="button">Aplicaciones TTO</button>
       <button class="tab-button restricted-tab hidden" id="tabDashboardBtn" onclick="showTab('dashboard')" type="button">Dashboard</button>
       <button class="tab-button admin-only hidden" id="tabAdminBtn" onclick="showTab('admin')" type="button">Invitaciones</button>
+      <button class="tab-button super-admin-only hidden" id="tabAccessMonitorBtn" onclick="showTab('accessMonitor')" type="button">MONITOREO DE ACCESO</button>
       <button class="tab-button super-admin-only hidden" id="tabResetBtn" onclick="showTab('reset')" type="button">Restablecer contrasena</button>
       <button class="tab-button auth-only hidden" id="tabPasswordBtn" onclick="showTab('password')" type="button">Cambiar contrasena</button>
     </nav>
@@ -1323,6 +1354,41 @@
       </section>
     </div>
 
+    <div class="tab-pane hidden" id="tabAccessMonitor">
+      <section class="hero">
+        <h1>MONITOREO DE ACCESO</h1>
+        <p class="subtitle">Panel privado del administrador para revisar ingresos reales, intentos fallidos, bloqueos temporales y problemas de verificacion.</p>
+        <div class="cards">
+          <div class="card"><span>Eventos revisados</span><strong id="accessTotalEvents">0</strong></div>
+          <div class="card"><span>Accesos correctos</span><strong id="accessSuccessEvents">0</strong></div>
+          <div class="card"><span>Problemas</span><strong id="accessProblemEvents">0</strong></div>
+          <div class="card"><span>Bloqueos</span><strong id="accessBlockedEvents">0</strong></div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <h3>Actividad reciente</h3>
+              <p id="accessMonitorStatus">Ultimos eventos de seguridad registrados.</p>
+            </div>
+            <button class="secondary" onclick="cargarMonitoreoAcceso()" type="button">Actualizar</button>
+          </div>
+          <div class="table-wrap">
+            <table id="tablaAccessMonitor"></table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Usuarios con acceso real</h3>
+          <div class="table-wrap">
+            <table class="mini-table" id="tablaAccessUsers"></table>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div class="tab-pane hidden" id="tabPassword">
       <section class="hero">
         <h1>Cambiar contrasena</h1>
@@ -1370,6 +1436,7 @@
     let currentApplications = [];
     let applicationColumnFilters = {};
     let applicationRowSequence = 0;
+    let accessMonitorLoadedOnce = false;
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get("invite") || "";
     const resetToken = urlParams.get("reset") || "";
@@ -1714,6 +1781,7 @@
       document.getElementById("tabAppsBtn").classList.toggle("hidden", !hasPermission("aplicaciones_tto"));
       document.getElementById("tabDashboardBtn").classList.toggle("hidden", !hasPermission("dashboard_vms"));
       document.getElementById("tabAdminBtn").classList.toggle("hidden", !hasPermission("invitaciones"));
+      document.getElementById("tabAccessMonitorBtn").classList.toggle("hidden", !currentUser?.is_super_admin);
       document.getElementById("tabResetBtn").classList.toggle("hidden", !currentUser?.is_super_admin);
       document.querySelectorAll(".auth-only").forEach((item) => {
         item.classList.remove("hidden");
@@ -1726,7 +1794,7 @@
         } else if (hasPermission("invitaciones")) {
           showTab("admin");
         } else if (currentUser?.is_super_admin) {
-          showTab("reset");
+          showTab("accessMonitor");
         } else {
           showTab("password");
         }
@@ -1739,6 +1807,7 @@
         apps: "tabApps",
         dashboard: "tabDashboard",
         admin: "tabAdmin",
+        accessMonitor: "tabAccessMonitor",
         reset: "tabReset",
         password: "tabPassword",
       };
@@ -1747,6 +1816,7 @@
         apps: "tabAppsBtn",
         dashboard: "tabDashboardBtn",
         admin: "tabAdminBtn",
+        accessMonitor: "tabAccessMonitorBtn",
         reset: "tabResetBtn",
         password: "tabPasswordBtn",
       };
@@ -1758,6 +1828,7 @@
       });
       if (name === "apps") cargarAplicaciones();
       if (name === "dashboard") cargarDashboardVms();
+      if (name === "accessMonitor") cargarMonitoreoAcceso();
       if (name === "reset") cargarUsuariosAdmin();
     }
 
@@ -2705,6 +2776,74 @@ document.addEventListener("DOMContentLoaded", () => {
     async function cargarUsuariosAdmin() {
       if (!currentUser?.is_super_admin) return;
       document.getElementById("resetPasswordStatus").textContent = "";
+    }
+
+    function accessStatusLabel(status) {
+      if (status === "ok") return "Correcto";
+      if (status === "problem") return "Problema";
+      return "Info";
+    }
+
+    function renderAccessUsers(users) {
+      const table = document.getElementById("tablaAccessUsers");
+      if (!users || !users.length) {
+        table.innerHTML = `<tr><td class="empty">Aun no hay accesos correctos registrados.</td></tr>`;
+        return;
+      }
+      table.innerHTML = `
+        <tr><th>Usuario</th><th>Ultimo acceso</th><th>IP</th><th>Total</th></tr>
+        ${users.map(item => `
+          <tr>
+            <td>${escapeHtml(item.username)}</td>
+            <td>${escapeHtml(item.last_access)}</td>
+            <td>${escapeHtml(item.ip)}</td>
+            <td>${escapeHtml(item.count)}</td>
+          </tr>
+        `).join("")}
+      `;
+    }
+
+    function renderAccessEvents(events) {
+      const table = document.getElementById("tablaAccessMonitor");
+      if (!events || !events.length) {
+        table.innerHTML = `<tr><td class="empty">No hay eventos de acceso registrados todavia.</td></tr>`;
+        return;
+      }
+      const headers = ["Estado", "Fecha", "Usuario", "Evento", "Motivo", "IP", "Navegador / equipo"];
+      const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
+      const rows = events.map(item => `
+        <tr>
+          <td><span class="status-badge ${escapeHtml(item.status)}">${accessStatusLabel(item.status)}</span></td>
+          <td>${escapeHtml(item.ts)}</td>
+          <td>${escapeHtml(item.username)}</td>
+          <td>${escapeHtml(item.label)}</td>
+          <td>${escapeHtml(item.reason || "-")}</td>
+          <td>${escapeHtml(item.ip)}</td>
+          <td>${escapeHtml(item.user_agent || "-")}</td>
+        </tr>
+      `).join("");
+      table.innerHTML = head + rows;
+    }
+
+    async function cargarMonitoreoAcceso(force = true) {
+      if (!currentUser?.is_super_admin) return;
+      if (accessMonitorLoadedOnce && !force) return;
+      const status = document.getElementById("accessMonitorStatus");
+      status.textContent = "Leyendo eventos de acceso...";
+      try {
+        const payload = await jsonFetch(`${apiBase}/admin/access-monitor?limit=300`, { headers: {} });
+        const summary = payload.summary || {};
+        setText("accessTotalEvents", summary.total_events || 0);
+        setText("accessSuccessEvents", summary.successful_access || 0);
+        setText("accessProblemEvents", summary.problems || 0);
+        setText("accessBlockedEvents", summary.blocked || 0);
+        renderAccessEvents(payload.events || []);
+        renderAccessUsers(summary.users || []);
+        accessMonitorLoadedOnce = true;
+        status.textContent = `Mostrando ${summary.total_events || 0} eventos recientes.`;
+      } catch (error) {
+        status.textContent = error.message || "No se pudo cargar el monitoreo de acceso.";
+      }
     }
 
     async function restablecerPasswordUsuario() {
