@@ -1089,9 +1089,11 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed["fecha_conexion"] = format_date(safe_col(raw, 24))
     processed["fecha_asignacion"] = format_date(safe_col(raw, 25))
     processed["modelo_seguro"] = safe_col(raw, 26).map(clean_value)
-    has_solicitante_column = normalize_header_key("SOLICITANTE") in {normalize_header_key(col) for col in raw.columns}
-    if has_solicitante_column:
-        processed["solicitante"] = get_series_by_header_alias_or_index(raw, ["SOLICITANTE"], 27).map(clean_value)
+    header_keys = [normalize_header_key(col) for col in raw.columns]
+    has_solicitante_column = normalize_header_key("SOLICITANTE") in header_keys
+    has_cargo_ac_column = len(header_keys) > 28 and header_keys[28] in {"cargo", "cargo2", "cargoactual"}
+    if has_solicitante_column or has_cargo_ac_column:
+        processed["solicitante"] = safe_col(raw, 27).map(clean_value)
         processed["cargo2_ab"] = safe_col(raw, 28).map(clean_value)
         processed["jefe_inmediato"] = safe_col(raw, 29).map(clean_value)
     else:

@@ -848,7 +848,7 @@
       padding: 8px;
       border: 1px solid rgba(216, 203, 183, 0.95);
       border-radius: 14px;
-      background: rgba(255, 252, 246, 0.98);
+      background: #fffaf1;
       box-shadow: var(--shadow);
     }
 
@@ -898,6 +898,7 @@
 
     .multi-select-option span {
       min-width: 0;
+      color: var(--text);
     }
 
     .multi-select-actions {
@@ -2719,18 +2720,35 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    function cleanDashboardCargoOptions(values) {
+      return [...new Set((values || [])
+        .map(value => String(value || "").trim())
+        .filter(value => value && value !== "-"))]
+        .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+    }
+
+    function dashboardCargoOptionsFromData(data) {
+      const cargos = [
+        ...((data.filter_options && data.filter_options.cargos2_ab) || []),
+        ...(data.por_cargo2_ab || []).map(item => item.cargo2_ab),
+        ...(data.asignadas || []).map(item => item.cargo2_ab),
+      ];
+      return cleanDashboardCargoOptions(cargos);
+    }
+
     function fillMultiSelectOptions(id, placeholder, values, selectedSet, query = "") {
       const control = document.getElementById(id);
       if (!control) return;
       const panel = control.querySelector("[data-multi-options]");
-      const available = new Set(values || []);
+      const cleanValues = cleanDashboardCargoOptions(values);
+      const available = new Set(cleanValues);
       [...selectedSet].forEach(value => {
         if (!available.has(value)) selectedSet.delete(value);
       });
       const normalizedQuery = normalizeText(query);
       const visibleValues = normalizedQuery
-        ? (values || []).filter(value => normalizeText(value).includes(normalizedQuery))
-        : (values || []);
+        ? cleanValues.filter(value => normalizeText(value).includes(normalizedQuery))
+        : cleanValues;
       panel.innerHTML = visibleValues.length
         ? visibleValues.map(value => `
           <label class="multi-select-option">
@@ -2738,7 +2756,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span>${escapeHtml(value)}</span>
           </label>
         `).join("")
-        : `<div class="multi-select-empty">${values && values.length ? "Sin cargos con ese texto" : "Sin cargos disponibles"}</div>`;
+        : `<div class="multi-select-empty">${cleanValues.length ? "Sin cargos con ese texto" : "Sin cargos disponibles"}</div>`;
       panel.querySelectorAll("input[type='checkbox']").forEach(input => {
         input.addEventListener("change", () => {
           if (input.checked) selectedSet.add(input.value);
@@ -2766,10 +2784,10 @@ document.addEventListener("DOMContentLoaded", () => {
       cargarDashboardVms();
     }
 
-    function updateDashboardFilterOptions(options) {
+    function updateDashboardFilterOptions(options, data = null) {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
-      dashboardCargoOptions = options.cargos2_ab || [];
+      dashboardCargoOptions = data ? dashboardCargoOptionsFromData(data) : cleanDashboardCargoOptions(options.cargos2_ab || []);
       renderDashboardCargoOptions();
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
       fillSelectOptions("dashEstadoFilter", "Estado", options.estados || []);
@@ -2886,7 +2904,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("infraStorageStatus").textContent = storage.writable
         ? `Guardado persistente activo en ${storage.path || "DATA_DIR"}.`
         : "Advertencia: el almacenamiento persistente no esta disponible en el servidor.";
-      updateDashboardFilterOptions(data.filter_options || {});
+      updateDashboardFilterOptions(data.filter_options || {}, data);
       renderMiniTable(
         "tablaDashAreas",
         ["Area", "Cantidad"],
