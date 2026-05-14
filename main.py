@@ -2301,85 +2301,59 @@ async def create_invitation(request: Request):
     require_permission(request, "invitaciones")
     body = await request.json()
     email = str(body.get("email", "")).strip().lower()
-    display_name = clean_value(body.get("display_name", ""))
     role = normalize_role(body.get("role", "invitado"))
-    username = str(body.get("username", "")).strip().lower() or email.split("@", 1)[0]
+    username = str(body.get("username", "")).strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Correo invalido")
     if role not in {"tecnologia", "invitado"}:
         raise HTTPException(status_code=400, detail="Rol invalido para invitacion")
 
     existing_username, existing_user = find_user_by_email(email)
-    if username in USERS:
+    if username and username in USERS:
         existing_username = username
         existing_user = USERS[username]
 
-    if existing_user:
-        role_updated = apply_invited_role_to_existing_user(existing_username, existing_user, role)
-        token = make_action_token("access", existing_username, ttl_seconds=48 * 60 * 60)
-        link = build_public_url(request, token, "access")
-        audit_event(
-            "access_link_created",
-            request,
-            existing_username,
-            {"email": email, "role": USERS[existing_username].get("role", ""), "role_updated": role_updated, "expires_hours": 48},
+    if not existing_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Ese correo no pertenece a un usuario configurado. Primero agregalo en APP_USERS_JSON de Render y reinicia el servicio.",
         )
-        mail_sent = False
-        mail_error = ""
-        try:
-            send_link_email(
-                email,
-                "Acceso a Inventario VMS",
-                "Acceso a la plataforma",
-                "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
-                link,
-            )
-            mail_sent = True
-        except Exception as exc:
-            mail_error = f"{type(exc).__name__}: {exc}"
-            print(f"[ERROR] No se pudo enviar enlace a {email}: {mail_error}", flush=True)
-        return {
-            "ok": True,
-            "existing": True,
-            "username": existing_username,
-            "email": email,
-            "role": USERS[existing_username].get("role", ""),
-            "role_updated": role_updated,
-            "link": link,
-            "mail_sent": mail_sent,
-            "mail_pending": False,
-            "mail_error": mail_error,
-        }
 
-    token = make_action_token("invite", username, ttl_seconds=48 * 60 * 60)
-    audit_event("invite_created", request, username, {"email": email, "role": role, "expires_hours": 48})
-    invite_store[token] = {
-        "username": username,
-        "email": email,
-        "display_name": display_name or username,
-        "role": role,
-        "created_at": now_ts(),
-        "expires_at": now_ts() + 48 * 60 * 60,
-        "used": False,
-    }
-    save_json_file(INVITES_STORE_PATH, invite_store)
-
-    link = build_public_url(request, token, "invite")
+    role_updated = apply_invited_role_to_existing_user(existing_username, existing_user, role)
+    token = make_action_token("access", existing_username, ttl_seconds=48 * 60 * 60)
+    link = build_public_url(request, token, "access")
+    audit_event(
+        "access_link_created",
+        request,
+        existing_username,
+        {"email": email, "role": USERS[existing_username].get("role", ""), "role_updated": role_updated, "expires_hours": 48},
+    )
     mail_sent = False
     mail_error = ""
     try:
         send_link_email(
             email,
-            "Invitacion de acceso | Inventario VMS",
-            "Invitacion de acceso",
-            "Ha recibido una invitacion para crear su acceso a la plataforma. El enlace vence en 48 horas.",
+            "Acceso a Inventario VMS",
+            "Acceso a la plataforma",
+            "Use este enlace para habilitar el ingreso a Inventario VMS en su navegador. Luego ingrese con su usuario y contrasena temporal.",
             link,
         )
         mail_sent = True
     except Exception as exc:
         mail_error = f"{type(exc).__name__}: {exc}"
         print(f"[ERROR] No se pudo enviar enlace a {email}: {mail_error}", flush=True)
-    return {"ok": True, "username": username, "email": email, "role": role, "link": link, "mail_sent": mail_sent, "mail_pending": False, "mail_error": mail_error}
+    return {
+        "ok": True,
+        "existing": True,
+        "username": existing_username,
+        "email": email,
+        "role": USERS[existing_username].get("role", ""),
+        "role_updated": role_updated,
+        "link": link,
+        "mail_sent": mail_sent,
+        "mail_pending": False,
+        "mail_error": mail_error,
+    }
 
 
 @app.get("/admin/users")
@@ -2405,6 +2379,26 @@ def admin_users(request: Request):
             }
         )
     return {"users": users}
+
+
+@app.delete("/admin/users/{username}")
+def delete_local_user(username: str, request: Request):
+    admin_user = require_super_admin(request)
+    username = username.strip().lower()
+    user = USERS.get(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if username in ENV_USERNAMES:
+        raise HTTPException(status_code=400, detail="Este usuario viene de Render JSON. Eliminalo en APP_USERS_JSON y reinicia el servicio.")
+    if is_super_admin({"username": username, **user}):
+        raise HTTPException(status_code=400, detail="No se puede eliminar el super admin")
+
+    USERS.pop(username, None)
+    if not persist_dynamic_users():
+        raise HTTPException(status_code=500, detail="No se pudo guardar la eliminacion")
+
+    audit_event("local_user_deleted", request, username, {"by": admin_user["username"]})
+    return {"ok": True, "username": username, "message": "Usuario local eliminado"}
 
 
 @app.get("/admin/access-monitor")

@@ -2787,11 +2787,9 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         const roleNote = payload.role === "tecnologia" ? " con rol Tecnologia" : "";
         if (payload.mail_pending) {
-          setInviteStatus(`Invitacion creada para ${payload.email}${roleNote}. El correo se esta intentando enviar; tambien puedes copiar este enlace.`, payload.link);
+          setInviteStatus(`Enlace de acceso preparado para ${payload.email}${roleNote}. El correo se esta intentando enviar; tambien puedes copiar este enlace.`, payload.link);
         } else if (payload.mail_sent) {
-          setInviteStatus(payload.existing
-            ? `Enlace de acceso enviado a ${payload.email}${roleNote}.`
-            : `Invitacion enviada a ${payload.email}${roleNote}.`);
+          setInviteStatus(`Enlace de acceso enviado a ${payload.email}${roleNote}.`);
         } else {
           const errorNote = payload.mail_error ? ` Error SMTP: ${payload.mail_error}` : "";
           setInviteStatus(`Correo no disponible. Copia y envia este enlace a ${payload.email}${roleNote}.${errorNote}`, payload.link);
@@ -2839,7 +2837,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ["exportar", "Export"],
       ];
       table.innerHTML = `
-        <tr><th>Usuario</th><th>Origen</th><th>Rol</th><th>Permisos</th><th>Pestanas visibles</th><th>Editar</th><th>Clave</th></tr>
+        <tr><th>Usuario</th><th>Origen</th><th>Rol</th><th>Permisos</th><th>Pestanas visibles</th><th>Editar</th><th>Accion</th><th>Clave</th></tr>
         ${users.map(item => `
           <tr>
             <td>${escapeHtml(item.username)}</td>
@@ -2857,6 +2855,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 `).join("")}
                 <button class="secondary" type="button" onclick="guardarPermisosUsuario('${escapeHtml(item.username)}')">Guardar</button>
               </div>
+            </td>
+            <td>
+              ${item.source === "Local"
+                ? `<button class="row-delete-button" type="button" onclick="eliminarUsuarioLocal('${escapeHtml(item.username)}')">Eliminar</button>`
+                : "-"}
             </td>
             <td>${item.password_must_change ? "Debe cambiar" : "OK"}</td>
           </tr>
@@ -2880,6 +2883,23 @@ document.addEventListener("DOMContentLoaded", () => {
         status.textContent = `Permisos actualizados para ${username}.`;
       } catch (error) {
         status.textContent = error.message || "No se pudieron actualizar los permisos.";
+      }
+    }
+
+    async function eliminarUsuarioLocal(username) {
+      const status = document.getElementById("accessMonitorStatus");
+      if (!window.confirm(`Eliminar usuario local ${username}?`)) return;
+      status.textContent = `Eliminando usuario local ${username}...`;
+      try {
+        await jsonFetch(`${apiBase}/admin/users/${encodeURIComponent(username)}`, {
+          method: "DELETE",
+          headers: {},
+        });
+        accessMonitorLoadedOnce = false;
+        await cargarMonitoreoAcceso(true);
+        status.textContent = `Usuario local ${username} eliminado.`;
+      } catch (error) {
+        status.textContent = error.message || "No se pudo eliminar el usuario local.";
       }
     }
 
