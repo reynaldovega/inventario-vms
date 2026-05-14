@@ -145,6 +145,14 @@ ROLE_DEFAULT_PERMISSIONS = {
     "tecnologia": ["inventario", "dashboard_vms", "aplicaciones_tto", "cargar_excel"],
     "invitado": ["inventario"],
 }
+PERMISSION_LABELS = {
+    "inventario": "Inventario VMS",
+    "dashboard_vms": "Dashboard",
+    "aplicaciones_tto": "Aplicaciones TTO",
+    "invitaciones": "Invitaciones",
+    "cargar_excel": "Carga Excel",
+    "exportar": "Exportar",
+}
 
 otp_store = {}  # {username: (codigo, expira)}
 invite_store = {}
@@ -509,6 +517,10 @@ def normalize_permissions(raw_permissions, role: str) -> list[str]:
         if mapped in allowed and mapped not in clean_permissions:
             clean_permissions.append(mapped)
     return clean_permissions or ROLE_DEFAULT_PERMISSIONS.get(role, ["inventario"])
+
+
+def valid_permissions() -> set[str]:
+    return set().union(*[set(items) for items in ROLE_DEFAULT_PERMISSIONS.values()])
 
 
 def user_permissions(user: dict) -> list[str]:
@@ -2400,16 +2412,10 @@ def admin_access_monitor(request: Request, limit: int = Query(default=300, ge=1,
     require_super_admin(request)
     events = read_security_audit(limit)
     configured_users = []
-    tab_labels = {
-        "inventario": "Inventario VMS",
-        "dashboard_vms": "Dashboard",
-        "aplicaciones_tto": "Aplicaciones TTO",
-        "invitaciones": "Invitaciones",
-    }
     for username in sorted(USERS):
         user = USERS[username]
         permissions = user_permissions(user)
-        visible_tabs = [label for permission, label in tab_labels.items() if permission in permissions]
+        visible_tabs = [label for permission, label in PERMISSION_LABELS.items() if permission in permissions and permission not in {"cargar_excel", "exportar"}]
         if is_super_admin({"username": username, **user}):
             visible_tabs.extend(["Monitoreo de acceso", "Restablecer contrasena"])
         configured_users.append(
@@ -2420,9 +2426,36 @@ def admin_access_monitor(request: Request, limit: int = Query(default=300, ge=1,
                 "permissions": permissions,
                 "visible_tabs": visible_tabs,
                 "password_must_change": password_requires_change({"username": username, **user}),
+                "source": "Render JSON" if username in ENV_USERNAMES else "Local",
             }
         )
     return {"summary": summarize_security_audit(events), "events": events, "configured_users": configured_users}
+
+
+@app.post("/admin/user-permissions")
+async def admin_user_permissions(request: Request):
+    admin_user = require_super_admin(request)
+    body = await request.json()
+    username = str(body.get("username", "")).strip().lower()
+    permissions = body.get("permissions", [])
+    if username not in USERS:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not isinstance(permissions, list):
+        raise HTTPException(status_code=400, detail="Permisos invalidos")
+
+    user = USERS[username]
+    normalized = normalize_permissions(permissions, user.get("role", "invitado"))
+    invalid = [item for item in normalized if item not in valid_permissions()]
+    if invalid:
+        raise HTTPException(status_code=400, detail="Permisos invalidos")
+
+    user["permissions"] = normalized
+    USERS[username] = user
+    if not persist_dynamic_users():
+        raise HTTPException(status_code=500, detail="No se pudo guardar permisos")
+
+    audit_event("user_permissions_updated", request, username, {"by": admin_user["username"], "permissions": normalized})
+    return {"ok": True, "username": username, "permissions": normalized, "message": "Permisos actualizados"}
 
 
 @app.post("/admin/password-reset")

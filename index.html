@@ -679,6 +679,34 @@
       min-width: 1180px;
     }
 
+    #tablaAccessUsers {
+      min-width: 1080px;
+    }
+
+    .permission-editor {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(64px, 1fr));
+      gap: 6px;
+      align-items: center;
+      min-width: 300px;
+    }
+
+    .permission-editor label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .permission-editor button {
+      grid-column: span 3;
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+    }
+
     .mini-table {
       width: 100%;
       min-width: 0;
@@ -2802,18 +2830,57 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay usuarios configurados para mostrar.</td></tr>`;
         return;
       }
+      const editablePermissions = [
+        ["inventario", "Inv"],
+        ["dashboard_vms", "Dash"],
+        ["aplicaciones_tto", "Apps"],
+        ["invitaciones", "Invit."],
+        ["cargar_excel", "Carga"],
+        ["exportar", "Export"],
+      ];
       table.innerHTML = `
-        <tr><th>Usuario</th><th>Rol</th><th>Permisos</th><th>Pestanas visibles</th><th>Clave</th></tr>
+        <tr><th>Usuario</th><th>Origen</th><th>Rol</th><th>Permisos</th><th>Pestanas visibles</th><th>Editar</th><th>Clave</th></tr>
         ${users.map(item => `
           <tr>
             <td>${escapeHtml(item.username)}</td>
+            <td>${escapeHtml(item.source || "-")}</td>
             <td>${escapeHtml(roleLabel(item.role))}</td>
             <td>${escapeHtml((item.permissions || []).map(permissionLabel).join(", ") || "-")}</td>
             <td>${escapeHtml((item.visible_tabs || []).join(", ") || "-")}</td>
+            <td>
+              <div class="permission-editor">
+                ${editablePermissions.map(([permission, label]) => `
+                  <label>
+                    <input type="checkbox" data-permission-user="${escapeHtml(item.username)}" data-permission-key="${permission}" ${(item.permissions || []).includes(permission) ? "checked" : ""}>
+                    ${label}
+                  </label>
+                `).join("")}
+                <button class="secondary" type="button" onclick="guardarPermisosUsuario('${escapeHtml(item.username)}')">Guardar</button>
+              </div>
+            </td>
             <td>${item.password_must_change ? "Debe cambiar" : "OK"}</td>
           </tr>
         `).join("")}
       `;
+    }
+
+    async function guardarPermisosUsuario(username) {
+      const status = document.getElementById("accessMonitorStatus");
+      const permissions = Array.from(document.querySelectorAll("[data-permission-user]"))
+        .filter(input => input.dataset.permissionUser === username && input.checked)
+        .map(input => input.dataset.permissionKey);
+      status.textContent = `Guardando permisos de ${username}...`;
+      try {
+        await jsonFetch(`${apiBase}/admin/user-permissions`, {
+          method: "POST",
+          body: JSON.stringify({ username, permissions }),
+        });
+        accessMonitorLoadedOnce = false;
+        await cargarMonitoreoAcceso(true);
+        status.textContent = `Permisos actualizados para ${username}.`;
+      } catch (error) {
+        status.textContent = error.message || "No se pudieron actualizar los permisos.";
+      }
     }
 
     function renderAccessEvents(events) {
