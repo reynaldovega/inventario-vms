@@ -1381,7 +1381,7 @@
         </div>
 
         <div class="panel">
-          <h3>Usuarios con acceso real</h3>
+          <h3>Permisos configurados</h3>
           <div class="table-wrap">
             <table class="mini-table" id="tablaAccessUsers"></table>
           </div>
@@ -2784,20 +2784,33 @@ document.addEventListener("DOMContentLoaded", () => {
       return "Info";
     }
 
+    function permissionLabel(permission) {
+      const labels = {
+        inventario: "Inventario",
+        dashboard_vms: "Dashboard",
+        aplicaciones_tto: "Apps TTO",
+        invitaciones: "Invitaciones",
+        cargar_excel: "Carga Excel",
+        exportar: "Exportar",
+      };
+      return labels[permission] || permission;
+    }
+
     function renderAccessUsers(users) {
       const table = document.getElementById("tablaAccessUsers");
       if (!users || !users.length) {
-        table.innerHTML = `<tr><td class="empty">Aun no hay accesos correctos registrados.</td></tr>`;
+        table.innerHTML = `<tr><td class="empty">No hay usuarios configurados para mostrar.</td></tr>`;
         return;
       }
       table.innerHTML = `
-        <tr><th>Usuario</th><th>Ultimo acceso</th><th>IP</th><th>Total</th></tr>
+        <tr><th>Usuario</th><th>Rol</th><th>Permisos</th><th>Pestanas visibles</th><th>Clave</th></tr>
         ${users.map(item => `
           <tr>
             <td>${escapeHtml(item.username)}</td>
-            <td>${escapeHtml(item.last_access)}</td>
-            <td>${escapeHtml(item.ip)}</td>
-            <td>${escapeHtml(item.count)}</td>
+            <td>${escapeHtml(roleLabel(item.role))}</td>
+            <td>${escapeHtml((item.permissions || []).map(permissionLabel).join(", ") || "-")}</td>
+            <td>${escapeHtml((item.visible_tabs || []).join(", ") || "-")}</td>
+            <td>${item.password_must_change ? "Debe cambiar" : "OK"}</td>
           </tr>
         `).join("")}
       `;
@@ -2838,7 +2851,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setText("accessProblemEvents", summary.problems || 0);
         setText("accessBlockedEvents", summary.blocked || 0);
         renderAccessEvents(payload.events || []);
-        renderAccessUsers(summary.users || []);
+        renderAccessUsers(payload.configured_users || []);
         accessMonitorLoadedOnce = true;
         status.textContent = `Mostrando ${summary.total_events || 0} eventos recientes.`;
       } catch (error) {

@@ -2374,11 +2374,12 @@ async def create_invitation(request: Request):
 def admin_users(request: Request):
     require_super_admin(request)
     users = []
-    for username in sorted(ENV_USERNAMES):
+    for username in sorted(USERS):
         user = USERS.get(username) or ENV_USERS.get(username)
         if not user:
             continue
         email = clean_value(user.get("email", "")).lower()
+        permissions = user_permissions(user)
         users.append(
             {
                 "username": username,
@@ -2388,6 +2389,7 @@ def admin_users(request: Request):
                 "email_hint": mask_email(email) if email else "",
                 "has_email": bool(email and "@" in email),
                 "password_must_change": password_requires_change({"username": username, **user}),
+                "permissions": permissions,
             }
         )
     return {"users": users}
@@ -2397,7 +2399,30 @@ def admin_users(request: Request):
 def admin_access_monitor(request: Request, limit: int = Query(default=300, ge=1, le=1000)):
     require_super_admin(request)
     events = read_security_audit(limit)
-    return {"summary": summarize_security_audit(events), "events": events}
+    configured_users = []
+    tab_labels = {
+        "inventario": "Inventario VMS",
+        "dashboard_vms": "Dashboard",
+        "aplicaciones_tto": "Aplicaciones TTO",
+        "invitaciones": "Invitaciones",
+    }
+    for username in sorted(USERS):
+        user = USERS[username]
+        permissions = user_permissions(user)
+        visible_tabs = [label for permission, label in tab_labels.items() if permission in permissions]
+        if is_super_admin({"username": username, **user}):
+            visible_tabs.extend(["Monitoreo de acceso", "Restablecer contrasena"])
+        configured_users.append(
+            {
+                "username": username,
+                "display_name": clean_value(user.get("display_name", username)) or username,
+                "role": user.get("role", ""),
+                "permissions": permissions,
+                "visible_tabs": visible_tabs,
+                "password_must_change": password_requires_change({"username": username, **user}),
+            }
+        )
+    return {"summary": summarize_security_audit(events), "events": events, "configured_users": configured_users}
 
 
 @app.post("/admin/password-reset")
