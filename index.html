@@ -785,7 +785,11 @@
 
     .multi-select {
       position: relative;
-      min-width: 210px;
+      min-width: 0;
+    }
+
+    .dashboard-cargo-filter {
+      grid-column: span 2;
     }
 
     .multi-select-trigger {
@@ -800,6 +804,7 @@
       gap: 10px;
       text-align: left;
       box-shadow: 0 8px 18px rgba(76, 56, 33, 0.06);
+      overflow: hidden;
     }
 
     .multi-select-trigger:hover {
@@ -809,6 +814,7 @@
     }
 
     .multi-select-label {
+      flex: 1 1 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -825,15 +831,20 @@
       padding: 3px 8px;
     }
 
+    .multi-select-caret {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
     .multi-select-panel {
       position: absolute;
       top: calc(100% + 8px);
       left: 0;
-      right: 0;
+      width: min(520px, calc(100vw - 36px));
       z-index: 20;
       display: none;
       max-height: 300px;
-      overflow: auto;
       padding: 8px;
       border: 1px solid rgba(216, 203, 183, 0.95);
       border-radius: 14px;
@@ -843,18 +854,36 @@
 
     .multi-select.open .multi-select-panel {
       display: grid;
+      gap: 8px;
+    }
+
+    .multi-select-search {
+      min-height: 40px;
+      width: 100%;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .multi-select-list {
+      display: grid;
       gap: 4px;
+      max-height: 210px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 4px;
     }
 
     .multi-select-option {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 9px;
       padding: 8px 9px;
       border-radius: 10px;
       color: var(--text);
       cursor: pointer;
       line-height: 1.25;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
 
     .multi-select-option:hover {
@@ -862,7 +891,23 @@
     }
 
     .multi-select-option input {
+      flex: 0 0 auto;
+      margin-top: 3px;
       accent-color: var(--brand);
+    }
+
+    .multi-select-option span {
+      min-width: 0;
+    }
+
+    .multi-select-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .multi-select-actions button {
+      min-height: 38px;
+      padding: 8px 10px;
     }
 
     .multi-select-empty {
@@ -990,6 +1035,14 @@
       .analytics-grid,
       .donut-wrap {
         grid-template-columns: 1fr;
+      }
+
+      .dashboard-cargo-filter {
+        grid-column: auto;
+      }
+
+      .multi-select-panel {
+        width: 100%;
       }
 
       .cards {
@@ -1375,12 +1428,20 @@
           <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
-          <div class="multi-select" id="dashCargo2Filter">
+          <div class="multi-select dashboard-cargo-filter" id="dashCargo2Filter">
             <button class="multi-select-trigger" type="button" onclick="toggleMultiSelect('dashCargo2Filter')">
               <span class="multi-select-label" data-multi-label>Cargo actual</span>
               <span class="multi-select-count hidden" data-multi-count>0</span>
+              <span class="multi-select-caret">v</span>
             </button>
-            <div class="multi-select-panel" data-multi-options></div>
+            <div class="multi-select-panel">
+              <input class="multi-select-search" id="dashCargo2Search" type="text" placeholder="Buscar cargo" oninput="renderDashboardCargoOptions()">
+              <div class="multi-select-list" data-multi-options></div>
+              <div class="multi-select-actions">
+                <button class="secondary" type="button" onclick="clearDashboardCargoSelection()">Limpiar cargos</button>
+                <button type="button" onclick="applyDashboardCargoSelection()">Aplicar</button>
+              </div>
+            </div>
           </div>
           <input type="text" id="dashDniFilter" placeholder="DNI">
           <select id="dashSoFilter"><option value="">Sistema operativo</option></select>
@@ -1556,6 +1617,7 @@
     let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
     let dashboardLoadedOnce = false;
     let selectedDashboardCargos = new Set();
+    let dashboardCargoOptions = [];
     let currentApplications = [];
     let applicationColumnFilters = {};
     let applicationRowSequence = 0;
@@ -2634,6 +2696,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (item !== control) item.classList.remove("open");
       });
       control.classList.toggle("open", willOpen);
+      if (willOpen) {
+        const search = control.querySelector(".multi-select-search");
+        if (search) search.focus();
+      }
     }
 
     function updateMultiSelectLabel(id, placeholder, selectedSet) {
@@ -2653,7 +2719,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    function fillMultiSelectOptions(id, placeholder, values, selectedSet) {
+    function fillMultiSelectOptions(id, placeholder, values, selectedSet, query = "") {
       const control = document.getElementById(id);
       if (!control) return;
       const panel = control.querySelector("[data-multi-options]");
@@ -2661,14 +2727,18 @@ document.addEventListener("DOMContentLoaded", () => {
       [...selectedSet].forEach(value => {
         if (!available.has(value)) selectedSet.delete(value);
       });
-      panel.innerHTML = values && values.length
-        ? values.map(value => `
+      const normalizedQuery = normalizeText(query);
+      const visibleValues = normalizedQuery
+        ? (values || []).filter(value => normalizeText(value).includes(normalizedQuery))
+        : (values || []);
+      panel.innerHTML = visibleValues.length
+        ? visibleValues.map(value => `
           <label class="multi-select-option">
             <input type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""}>
             <span>${escapeHtml(value)}</span>
           </label>
         `).join("")
-        : `<div class="multi-select-empty">Sin cargos disponibles</div>`;
+        : `<div class="multi-select-empty">${values && values.length ? "Sin cargos con ese texto" : "Sin cargos disponibles"}</div>`;
       panel.querySelectorAll("input[type='checkbox']").forEach(input => {
         input.addEventListener("change", () => {
           if (input.checked) selectedSet.add(input.value);
@@ -2679,10 +2749,28 @@ document.addEventListener("DOMContentLoaded", () => {
       updateMultiSelectLabel(id, placeholder, selectedSet);
     }
 
+    function renderDashboardCargoOptions() {
+      const search = document.getElementById("dashCargo2Search");
+      fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", dashboardCargoOptions, selectedDashboardCargos, search ? search.value : "");
+    }
+
+    function clearDashboardCargoSelection() {
+      selectedDashboardCargos.clear();
+      const search = document.getElementById("dashCargo2Search");
+      if (search) search.value = "";
+      renderDashboardCargoOptions();
+    }
+
+    function applyDashboardCargoSelection() {
+      document.getElementById("dashCargo2Filter").classList.remove("open");
+      cargarDashboardVms();
+    }
+
     function updateDashboardFilterOptions(options) {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
-      fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", options.cargos2_ab || [], selectedDashboardCargos);
+      dashboardCargoOptions = options.cargos2_ab || [];
+      renderDashboardCargoOptions();
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
       fillSelectOptions("dashEstadoFilter", "Estado", options.estados || []);
     }
@@ -2692,7 +2780,9 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
       selectedDashboardCargos.clear();
-      fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", [], selectedDashboardCargos);
+      const cargoSearch = document.getElementById("dashCargo2Search");
+      if (cargoSearch) cargoSearch.value = "";
+      renderDashboardCargoOptions();
       document.getElementById("dashDniFilter").value = "";
       document.getElementById("dashSoFilter").value = "";
       document.getElementById("dashEstadoFilter").value = "";
