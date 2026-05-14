@@ -779,8 +779,96 @@
     }
 
     .dashboard-filters {
-      grid-template-columns: repeat(7, minmax(130px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       align-items: end;
+    }
+
+    .multi-select {
+      position: relative;
+      min-width: 210px;
+    }
+
+    .multi-select-trigger {
+      width: 100%;
+      min-height: 44px;
+      background: white;
+      color: var(--text);
+      border: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      text-align: left;
+      box-shadow: 0 8px 18px rgba(76, 56, 33, 0.06);
+    }
+
+    .multi-select-trigger:hover {
+      background: #fffaf1;
+      color: var(--brand-dark);
+      transform: translateY(-1px);
+    }
+
+    .multi-select-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .multi-select-count {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: rgba(30, 111, 92, 0.1);
+      color: var(--brand-dark);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 3px 8px;
+    }
+
+    .multi-select-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      z-index: 20;
+      display: none;
+      max-height: 300px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid rgba(216, 203, 183, 0.95);
+      border-radius: 14px;
+      background: rgba(255, 252, 246, 0.98);
+      box-shadow: var(--shadow);
+    }
+
+    .multi-select.open .multi-select-panel {
+      display: grid;
+      gap: 4px;
+    }
+
+    .multi-select-option {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 9px;
+      border-radius: 10px;
+      color: var(--text);
+      cursor: pointer;
+      line-height: 1.25;
+    }
+
+    .multi-select-option:hover {
+      background: rgba(30, 111, 92, 0.08);
+    }
+
+    .multi-select-option input {
+      accent-color: var(--brand);
+    }
+
+    .multi-select-empty {
+      padding: 9px;
+      color: var(--muted);
+      font-size: 0.9rem;
     }
 
     .inline-form input,
@@ -1287,7 +1375,13 @@
           <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
-          <select id="dashCargo2Filter"><option value="">Cargo actual</option></select>
+          <div class="multi-select" id="dashCargo2Filter">
+            <button class="multi-select-trigger" type="button" onclick="toggleMultiSelect('dashCargo2Filter')">
+              <span class="multi-select-label" data-multi-label>Cargo actual</span>
+              <span class="multi-select-count hidden" data-multi-count>0</span>
+            </button>
+            <div class="multi-select-panel" data-multi-options></div>
+          </div>
           <input type="text" id="dashDniFilter" placeholder="DNI">
           <select id="dashSoFilter"><option value="">Sistema operativo</option></select>
           <select id="dashEstadoFilter"><option value="">Estado</option></select>
@@ -1461,6 +1555,7 @@
     let inactivityTimer = null;
     let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
     let dashboardLoadedOnce = false;
+    let selectedDashboardCargos = new Set();
     let currentApplications = [];
     let applicationColumnFilters = {};
     let applicationRowSequence = 0;
@@ -2147,7 +2242,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Solicitante", "Cargo", "Jefe inmediato", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
       ];
 
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
@@ -2164,7 +2259,9 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.ticket || "-"}</td>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.solicitante || "-"}</td>
           <td>${item.cargo2_ab || "-"}</td>
+          <td>${item.jefe_inmediato || "-"}</td>
           <td>${item.fecha_conexion || "-"}</td>
           <td>${item.fecha_asignacion || "-"}</td>
           <td>${item.modelo_seguro || "-"}</td>
@@ -2503,7 +2600,7 @@ document.addEventListener("DOMContentLoaded", () => {
         q: document.getElementById("dashQuery").value.trim(),
         area: document.getElementById("dashAreaFilter").value,
         centro_costo: document.getElementById("dashCentroFilter").value,
-        cargo2_ab: document.getElementById("dashCargo2Filter").value,
+        cargo2_ab: [...selectedDashboardCargos].join("||"),
         dni: document.getElementById("dashDniFilter").value.trim(),
         sistema_operativo: document.getElementById("dashSoFilter").value,
         estado: document.getElementById("dashEstadoFilter").value,
@@ -2529,10 +2626,63 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    function toggleMultiSelect(id) {
+      const control = document.getElementById(id);
+      if (!control) return;
+      const willOpen = !control.classList.contains("open");
+      document.querySelectorAll(".multi-select.open").forEach(item => {
+        if (item !== control) item.classList.remove("open");
+      });
+      control.classList.toggle("open", willOpen);
+    }
+
+    function updateMultiSelectLabel(id, placeholder, selectedSet) {
+      const control = document.getElementById(id);
+      if (!control) return;
+      const label = control.querySelector("[data-multi-label]");
+      const count = control.querySelector("[data-multi-count]");
+      const selected = [...selectedSet];
+      if (label) {
+        label.textContent = selected.length
+          ? (selected.length === 1 ? selected[0] : `${selected.length} cargos seleccionados`)
+          : placeholder;
+      }
+      if (count) {
+        count.textContent = selected.length;
+        count.classList.toggle("hidden", selected.length === 0);
+      }
+    }
+
+    function fillMultiSelectOptions(id, placeholder, values, selectedSet) {
+      const control = document.getElementById(id);
+      if (!control) return;
+      const panel = control.querySelector("[data-multi-options]");
+      const available = new Set(values || []);
+      [...selectedSet].forEach(value => {
+        if (!available.has(value)) selectedSet.delete(value);
+      });
+      panel.innerHTML = values && values.length
+        ? values.map(value => `
+          <label class="multi-select-option">
+            <input type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""}>
+            <span>${escapeHtml(value)}</span>
+          </label>
+        `).join("")
+        : `<div class="multi-select-empty">Sin cargos disponibles</div>`;
+      panel.querySelectorAll("input[type='checkbox']").forEach(input => {
+        input.addEventListener("change", () => {
+          if (input.checked) selectedSet.add(input.value);
+          else selectedSet.delete(input.value);
+          updateMultiSelectLabel(id, placeholder, selectedSet);
+        });
+      });
+      updateMultiSelectLabel(id, placeholder, selectedSet);
+    }
+
     function updateDashboardFilterOptions(options) {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
-      fillSelectOptions("dashCargo2Filter", "Cargo actual", options.cargos2_ab || []);
+      fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", options.cargos2_ab || [], selectedDashboardCargos);
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
       fillSelectOptions("dashEstadoFilter", "Estado", options.estados || []);
     }
@@ -2541,7 +2691,8 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("dashQuery").value = "";
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
-      document.getElementById("dashCargo2Filter").value = "";
+      selectedDashboardCargos.clear();
+      fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", [], selectedDashboardCargos);
       document.getElementById("dashDniFilter").value = "";
       document.getElementById("dashSoFilter").value = "";
       document.getElementById("dashEstadoFilter").value = "";
@@ -2683,7 +2834,7 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Solicitante", "Cargo", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
@@ -2692,7 +2843,9 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.nombre_completo || "-"}</td>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.solicitante || "-"}</td>
           <td>${item.cargo2_ab || "-"}</td>
+          <td>${item.jefe_inmediato || "-"}</td>
           <td>${item.hostname_infra || "-"}</td>
           <td>${item.hostname || "-"}</td>
           <td>${item.so_version || item.sistema_operativo || "-"}</td>
@@ -2857,7 +3010,7 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
             </td>
             <td>
-              ${item.source === "Local"
+              ${item.source === "Local" && !item.is_super_admin && item.username !== currentUser?.username
                 ? `<button class="row-delete-button" type="button" onclick="eliminarUsuarioLocal('${escapeHtml(item.username)}')">Eliminar</button>`
                 : "-"}
             </td>
@@ -3257,6 +3410,11 @@ document.querySelectorAll("[data-dashboard-export]").forEach((panel) => {
     if (!panel.classList.contains("dashboard-exportable")) return;
     descargarDashboardVms(panel.dataset.dashboardExport);
   });
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".multi-select")) return;
+  document.querySelectorAll(".multi-select.open").forEach(item => item.classList.remove("open"));
 });
 
 registerActivityListeners();

@@ -899,6 +899,13 @@ def get_series_by_header_alias(raw: pd.DataFrame, aliases: list[str]) -> pd.Seri
     return pd.Series([""] * len(raw), index=raw.index, dtype="object")
 
 
+def get_series_by_header_alias_or_index(raw: pd.DataFrame, aliases: list[str], fallback_index: int) -> pd.Series:
+    by_header = get_series_by_header_alias(raw, aliases)
+    if by_header.map(clean_value).ne("").any():
+        return by_header
+    return safe_col(raw, fallback_index)
+
+
 def has_valid_dni(series: pd.Series) -> pd.Series:
     return series.fillna("").astype(str).str.strip() != ""
 
@@ -1082,7 +1089,15 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed["fecha_conexion"] = format_date(safe_col(raw, 24))
     processed["fecha_asignacion"] = format_date(safe_col(raw, 25))
     processed["modelo_seguro"] = safe_col(raw, 26).map(clean_value)
-    processed["cargo2_ab"] = safe_col(raw, 27).map(clean_value)
+    has_solicitante_column = normalize_header_key("SOLICITANTE") in {normalize_header_key(col) for col in raw.columns}
+    if has_solicitante_column:
+        processed["solicitante"] = get_series_by_header_alias_or_index(raw, ["SOLICITANTE"], 27).map(clean_value)
+        processed["cargo2_ab"] = safe_col(raw, 28).map(clean_value)
+        processed["jefe_inmediato"] = safe_col(raw, 29).map(clean_value)
+    else:
+        processed["solicitante"] = pd.Series([""] * len(raw), index=raw.index, dtype="object")
+        processed["cargo2_ab"] = get_series_by_header_alias_or_index(raw, ["CARGO2", "CARGO ACTUAL", "CARGO"], 27).map(clean_value)
+        processed["jefe_inmediato"] = get_series_by_header_alias_or_index(raw, ["JEFE INMEDIATO", "JEFEINMEDIATO"], 28).map(clean_value)
 
     processed["nombre_completo"] = compact_name(
         [
@@ -1127,7 +1142,9 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
                 "ticket",
                 "area",
                 "centro_costo",
+                "solicitante",
                 "cargo2_ab",
+                "jefe_inmediato",
                 "estado",
                 "fecha_conexion",
                 "fecha_asignacion",
@@ -1335,7 +1352,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo2_ab", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "solicitante", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
@@ -1543,7 +1560,7 @@ def smart_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
     normalized_fields = {
         field: df[field].map(normalize_text)
-        for field in ["dni", "ip", "anexo", "hostname", "ticket", "area", "centro_costo", "cargo2_ab", "so"]
+        for field in ["dni", "ip", "anexo", "hostname", "ticket", "area", "centro_costo", "solicitante", "cargo2_ab", "jefe_inmediato", "so"]
         if field in df.columns
     }
 
@@ -1856,7 +1873,9 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
                 "ticket",
                 "area",
                 "centro_costo",
+                "solicitante",
                 "cargo2_ab",
+                "jefe_inmediato",
                 "fecha_conexion",
                 "fecha_asignacion",
                 "modelo_seguro",
@@ -1876,7 +1895,9 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
             "ticket": scoped["ticket"],
             "area": scoped["area"],
             "centro_costo": scoped["centro_costo"],
+            "solicitante": scoped["solicitante"] if "solicitante" in scoped else "",
             "cargo2_ab": scoped["cargo2_ab"],
+            "jefe_inmediato": scoped["jefe_inmediato"] if "jefe_inmediato" in scoped else "",
             "fecha_conexion": scoped["fecha_conexion"],
             "fecha_asignacion": scoped["fecha_asignacion"],
             "modelo_seguro": scoped["modelo_seguro"],
@@ -1900,7 +1921,9 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
             "ticket": scoped["ticket"] if "ticket" in scoped else "",
             "area": scoped["area"] if "area" in scoped else "",
             "centro_costo": scoped["centro_costo"] if "centro_costo" in scoped else "",
+            "solicitante": scoped["solicitante"] if "solicitante" in scoped else "",
             "cargo2_ab": scoped["cargo2_ab"] if "cargo2_ab" in scoped else "",
+            "jefe_inmediato": scoped["jefe_inmediato"] if "jefe_inmediato" in scoped else "",
             "fecha_conexion": scoped["fecha_conexion"] if "fecha_conexion" in scoped else "",
             "fecha_asignacion": scoped["fecha_asignacion"] if "fecha_asignacion" in scoped else "",
             "modelo_seguro": scoped["modelo_seguro"] if "modelo_seguro" in scoped else "",
@@ -1924,7 +1947,9 @@ def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
         "nombre_completo",
         "area",
         "centro_costo",
+        "solicitante",
         "cargo2_ab",
+        "jefe_inmediato",
         "hostname_infra",
         "hostname",
         "ticket",
@@ -2409,8 +2434,9 @@ def admin_access_monitor(request: Request, limit: int = Query(default=300, ge=1,
     for username in sorted(USERS):
         user = USERS[username]
         permissions = user_permissions(user)
+        user_is_super_admin = is_super_admin({"username": username, **user})
         visible_tabs = [label for permission, label in PERMISSION_LABELS.items() if permission in permissions and permission not in {"cargar_excel", "exportar"}]
-        if is_super_admin({"username": username, **user}):
+        if user_is_super_admin:
             visible_tabs.extend(["Monitoreo de acceso", "Restablecer contrasena"])
         configured_users.append(
             {
@@ -2421,6 +2447,7 @@ def admin_access_monitor(request: Request, limit: int = Query(default=300, ge=1,
                 "visible_tabs": visible_tabs,
                 "password_must_change": password_requires_change({"username": username, **user}),
                 "source": "Render JSON" if username in ENV_USERNAMES else "Local",
+                "is_super_admin": user_is_super_admin,
             }
         )
     return {"summary": summarize_security_audit(events), "events": events, "configured_users": configured_users}
