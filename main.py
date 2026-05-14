@@ -1279,10 +1279,19 @@ def dashboard_filter_options(merged: pd.DataFrame) -> dict:
         values = sorted({clean_value(value) for value in merged[field].fillna("").astype(str) if clean_value(value)})
         return values[:limit]
 
+    inventory = ensure_data_loaded()
+    cargo_values = set(unique_values("cargo2_ab", limit=2000))
+    if "cargo2_ab" in inventory:
+        cargo_values.update(
+            clean_value(value)
+            for value in inventory["cargo2_ab"].fillna("").astype(str)
+            if clean_value(value)
+        )
+
     return {
         "areas": unique_values("area"),
         "centros_costo": unique_values("centro_costo"),
-        "cargos2_ab": unique_values("cargo2_ab"),
+        "cargos2_ab": sorted(cargo_values)[:500],
         "sistemas_operativos": unique_values("so_version"),
         "estados": ["ASIGNADA", "LIBRE"],
     }
