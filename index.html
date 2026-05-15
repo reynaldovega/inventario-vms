@@ -1611,6 +1611,7 @@
 
   <script>
     const apiBase = window.location.origin;
+    const FRONTEND_BUILD = "cargo-list-dom-render-2026-05-15-02";
     const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
     let currentResults = [];
     let currentUser = null;
@@ -2753,15 +2754,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const visibleValues = normalizedQuery
         ? cleanValues.filter(value => normalizeText(value).includes(normalizedQuery))
         : cleanValues;
-      panel.innerHTML = visibleValues.length
-        ? visibleValues.map(value => `
-          <label class="multi-select-option">
-            <input type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""}>
-            <span>${escapeHtml(value)}</span>
-          </label>
-        `).join("")
-        : `<div class="multi-select-empty">${cleanValues.length ? "Sin cargos con ese texto" : "Sin cargos detectados en la base principal de Inventario VMS"}</div>`;
-      panel.querySelectorAll("input[type='checkbox']").forEach(input => {
+      panel.replaceChildren();
+      if (!visibleValues.length) {
+        const empty = document.createElement("div");
+        empty.className = "multi-select-empty";
+        empty.textContent = cleanValues.length
+          ? "Sin cargos con ese texto"
+          : "Sin cargos detectados en la base principal de Inventario VMS";
+        panel.appendChild(empty);
+        updateMultiSelectLabel(id, placeholder, selectedSet);
+        return;
+      }
+
+      visibleValues.forEach(value => {
+        const option = document.createElement("label");
+        option.className = "multi-select-option";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = value;
+        input.checked = selectedSet.has(value);
+        const text = document.createElement("span");
+        text.textContent = value;
+        option.append(input, text);
+        panel.appendChild(option);
         input.addEventListener("change", () => {
           if (input.checked) selectedSet.add(input.value);
           else selectedSet.delete(input.value);
