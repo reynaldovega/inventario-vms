@@ -841,11 +841,11 @@
       position: absolute;
       top: calc(100% + 8px);
       left: 0;
-      width: min(520px, calc(100vw - 36px));
+      width: min(680px, calc(100vw - 36px));
       z-index: 20;
       display: none;
-      max-height: 300px;
-      padding: 8px;
+      max-height: 430px;
+      padding: 10px;
       border: 1px solid rgba(216, 203, 183, 0.95);
       border-radius: 14px;
       background: #fffaf1;
@@ -866,9 +866,9 @@
 
     .multi-select-list {
       display: grid;
-      gap: 4px;
-      min-height: 96px;
-      max-height: 210px;
+      gap: 3px;
+      min-height: 120px;
+      max-height: 300px;
       overflow-y: auto;
       overflow-x: hidden;
       padding-right: 4px;
@@ -876,18 +876,19 @@
 
     .multi-select-option {
       display: grid;
-      grid-template-columns: 18px minmax(0, 1fr);
-      align-items: flex-start;
-      gap: 9px;
-      padding: 8px 9px;
+      grid-template-columns: 18px 1fr;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
       border-radius: 10px;
       color: #22201b !important;
       cursor: pointer;
-      line-height: 1.25;
-      overflow-wrap: anywhere;
+      line-height: 1.3;
+      overflow: visible;
       white-space: normal;
       background: transparent;
-      min-height: 34px;
+      min-height: 38px;
+      width: 100%;
     }
 
     .multi-select-option:hover {
@@ -895,8 +896,9 @@
     }
 
     .multi-select-option input {
-      flex: 0 0 auto;
-      margin-top: 3px;
+      width: 14px;
+      height: 14px;
+      margin: 2px 0 0;
       accent-color: var(--brand);
     }
 
@@ -910,17 +912,9 @@
       visibility: visible !important;
       text-indent: 0 !important;
       white-space: normal !important;
-    }
-
-    .multi-select-option::after {
-      content: attr(data-label);
-      grid-column: 2;
-      grid-row: 1;
-      color: #22201b;
-      font-size: 0.88rem;
-      line-height: 1.28;
-      overflow-wrap: anywhere;
-      white-space: normal;
+      overflow-wrap: break-word !important;
+      word-break: normal !important;
+      writing-mode: horizontal-tb !important;
     }
 
     .multi-select-actions {
@@ -2817,7 +2811,6 @@ document.addEventListener("DOMContentLoaded", () => {
       visibleValues.forEach(value => {
         const option = document.createElement("label");
         option.className = "multi-select-option";
-        option.dataset.label = value;
         option.title = value;
         const input = document.createElement("input");
         input.type = "checkbox";
@@ -2825,7 +2818,6 @@ document.addEventListener("DOMContentLoaded", () => {
         input.checked = selectedSet.has(value);
         const text = document.createElement("span");
         text.textContent = value;
-        text.setAttribute("aria-hidden", "true");
         option.append(input, text);
         panel.appendChild(option);
         input.addEventListener("change", () => {
