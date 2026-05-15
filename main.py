@@ -65,6 +65,7 @@ PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin").strip().lower() or "admin"
+APP_BUILD = "cargo-ac-selector-2026-05-15-01"
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
@@ -1072,6 +1073,36 @@ def compact_name(parts: list[pd.Series]) -> pd.Series:
     )
 
 
+def inventory_sheet_score(df: pd.DataFrame) -> int:
+    raw_columns = [clean_value(col) for col in df.columns]
+    header_keys = [normalize_header_key(col) for col in raw_columns]
+    score = 0
+    if len(header_keys) > 28 and header_keys[27] == "solicitante":
+        score += 20
+    if len(header_keys) > 28 and header_keys[28] in {"cargo", "cargo2", "cargoactual"}:
+        score += 30
+    if len(header_keys) > 29 and header_keys[29] in {"jefeinmediato", "jefe"}:
+        score += 20
+    if "dni" in header_keys:
+        score += 8
+    if any(key in header_keys for key in ["ip", "ipaddress"]):
+        score += 8
+    if "cargo2" in header_keys:
+        score += 8
+    if len(df.columns) >= 29:
+        score += 4
+    return score
+
+
+def read_inventory_excel_sheet(file_source) -> pd.DataFrame:
+    sheets = pd.read_excel(file_source, dtype=str, sheet_name=None)
+    if not sheets:
+        return pd.DataFrame()
+    best_name, best_df = max(sheets.items(), key=lambda item: inventory_sheet_score(item[1]))
+    print(f"[INFO] Hoja de inventario seleccionada: {best_name}", flush=True)
+    return best_df
+
+
 def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     raw = df.copy().fillna("")
     raw.columns = [clean_value(col) for col in raw.columns]
@@ -1159,7 +1190,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_dataframe_from_excel(file_source) -> pd.DataFrame:
-    df = pd.read_excel(file_source, dtype=str)
+    df = read_inventory_excel_sheet(file_source)
     return procesar_df(df)
 
 
@@ -1279,14 +1310,8 @@ def dashboard_filter_options(merged: pd.DataFrame) -> dict:
         values = sorted({clean_value(value) for value in merged[field].fillna("").astype(str) if clean_value(value)})
         return values[:limit]
 
-    inventory = ensure_data_loaded()
     cargo_values = set(unique_values("cargo2_ab", limit=2000))
-    if "cargo2_ab" in inventory:
-        cargo_values.update(
-            clean_value(value)
-            for value in inventory["cargo2_ab"].fillna("").astype(str)
-            if clean_value(value)
-        )
+    cargo_values.update(inventory_cargo_options(limit=2000))
 
     return {
         "areas": unique_values("area"),
@@ -1295,6 +1320,47 @@ def dashboard_filter_options(merged: pd.DataFrame) -> dict:
         "sistemas_operativos": unique_values("so_version"),
         "estados": ["ASIGNADA", "LIBRE"],
     }
+
+
+def inventory_cargo_options(limit: int = 500) -> list[str]:
+    inventory = ensure_data_loaded()
+    values = set(raw_inventory_cargo_options(limit=2000))
+    if "cargo2_ab" not in inventory:
+        return sorted(values)[:limit]
+    values.update(
+            clean_value(value)
+            for value in inventory["cargo2_ab"].fillna("").astype(str)
+            if clean_value(value)
+    )
+    return sorted(values)[:limit]
+
+
+def raw_inventory_cargo_options(limit: int = 500) -> list[str]:
+    source = MAIN_EXCEL_STORE_PATH if MAIN_EXCEL_STORE_PATH.exists() else DEFAULT_EXCEL
+    if not source or not Path(source).exists():
+        return []
+    try:
+        raw = read_inventory_excel_sheet(source).fillna("")
+        raw.columns = [clean_value(col) for col in raw.columns]
+        header_keys = [normalize_header_key(col) for col in raw.columns]
+        cargo_series = None
+        if len(header_keys) > 28 and header_keys[28] in {"cargo", "cargo2", "cargoactual"}:
+            cargo_series = safe_col(raw, 28)
+        elif len(header_keys) > 27 and header_keys[27] in {"cargo", "cargo2", "cargoactual"}:
+            cargo_series = safe_col(raw, 27)
+        else:
+            cargo_series = get_series_by_header_alias(raw, ["CARGO2", "CARGO ACTUAL", "CARGO"])
+        values = sorted(
+            {
+                clean_value(value)
+                for value in cargo_series.fillna("").astype(str)
+                if clean_value(value)
+            }
+        )
+        return values[:limit]
+    except Exception as exc:
+        print(f"[ERROR] No se pudieron leer cargos crudos: {type(exc).__name__}: {exc}", flush=True)
+        return []
 
 
 def filter_dashboard_rows(
@@ -1398,7 +1464,7 @@ def build_vms_dashboard_data(
             "por_so": [],
             "asignadas": [],
             "libres": [],
-            "filter_options": {"areas": [], "centros_costo": [], "cargos2_ab": [], "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
+            "filter_options": {"areas": [], "centros_costo": [], "cargos2_ab": inventory_cargo_options(), "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
             "storage": data_dir_status(),
         }
 
@@ -2194,7 +2260,14 @@ def get_card_export_dataframe(segment: str, q: str, tipo_entorno: str, status: s
 
 @app.get("/")
 def serve_index():
-    return FileResponse(BASE_DIR / "index.html")
+    return FileResponse(
+        BASE_DIR / "index.html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.post("/login")
@@ -2721,10 +2794,13 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     df_global = loaded_df
     current_file_name = file.filename or "archivo_subido.xlsx"
     persisted = save_main_upload(current_file_name, content)
+    cargos = inventory_cargo_options(limit=20)
     return {
         "mensaje": "Archivo cargado correctamente",
         "registros": int(len(df_global)),
         "archivo": current_file_name,
+        "cargos_detectados": len(inventory_cargo_options(limit=2000)),
+        "muestra_cargos": cargos,
         "persisted": persisted,
     }
 
@@ -2765,6 +2841,20 @@ def dashboard_vms(
 ):
     require_permission(request, "dashboard_vms")
     return build_vms_dashboard_data(q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
+
+
+@app.get("/dashboard-vms-cargos")
+def dashboard_vms_cargos(request: Request):
+    require_permission(request, "dashboard_vms")
+    cargos = inventory_cargo_options()
+    inventory = ensure_data_loaded()
+    return {
+        "cargos2_ab": cargos,
+        "total": len(cargos),
+        "archivo_principal": current_file_name,
+        "registros_principal": int(len(inventory)),
+        "muestra": cargos[:10],
+    }
 
 
 @app.get("/export-dashboard-vms")
@@ -3035,9 +3125,13 @@ def ticket_audit(
 @app.get("/meta")
 def meta():
     df = ensure_data_loaded()
+    cargos = inventory_cargo_options(limit=20)
     return {
+        "build": APP_BUILD,
         "archivo": current_file_name,
         "total_registros": int(len(df)),
+        "total_cargos_detectados": len(inventory_cargo_options(limit=2000)),
+        "muestra_cargos": cargos,
         "columnas_clave": [
             "ip",
             "dni",
@@ -3047,6 +3141,9 @@ def meta():
             "ticket",
             "area",
             "centro_costo",
+            "solicitante",
+            "cargo2_ab",
+            "jefe_inmediato",
             "fecha_conexion",
             "fecha_asignacion",
             "estado",

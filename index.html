@@ -1621,6 +1621,7 @@
     let dashboardLoadedOnce = false;
     let selectedDashboardCargos = new Set();
     let dashboardCargoOptions = [];
+    let dashboardCargoOptionsLoaded = false;
     let currentApplications = [];
     let applicationColumnFilters = {};
     let applicationRowSequence = 0;
@@ -2702,6 +2703,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (willOpen) {
         const search = control.querySelector(".multi-select-search");
         if (search) search.focus();
+        if (id === "dashCargo2Filter") cargarOpcionesCargoDashboard();
       }
     }
 
@@ -2758,7 +2760,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span>${escapeHtml(value)}</span>
           </label>
         `).join("")
-        : `<div class="multi-select-empty">${cleanValues.length ? "Sin cargos con ese texto" : "Sin cargos disponibles"}</div>`;
+        : `<div class="multi-select-empty">${cleanValues.length ? "Sin cargos con ese texto" : "Sin cargos detectados en la base principal de Inventario VMS"}</div>`;
       panel.querySelectorAll("input[type='checkbox']").forEach(input => {
         input.addEventListener("change", () => {
           if (input.checked) selectedSet.add(input.value);
@@ -2772,6 +2774,18 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderDashboardCargoOptions() {
       const search = document.getElementById("dashCargo2Search");
       fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", dashboardCargoOptions, selectedDashboardCargos, search ? search.value : "");
+    }
+
+    async function cargarOpcionesCargoDashboard(force = false) {
+      if (dashboardCargoOptionsLoaded && !force) return;
+      try {
+        const payload = await jsonFetch(`${apiBase}/dashboard-vms-cargos`);
+        dashboardCargoOptions = cleanDashboardCargoOptions(payload.cargos2_ab || []);
+        dashboardCargoOptionsLoaded = true;
+      } catch (error) {
+        console.warn("No se pudieron cargar cargos del dashboard", error);
+      }
+      renderDashboardCargoOptions();
     }
 
     function clearDashboardCargoSelection() {
@@ -2790,6 +2804,7 @@ document.addEventListener("DOMContentLoaded", () => {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
       dashboardCargoOptions = data ? dashboardCargoOptionsFromData(data) : cleanDashboardCargoOptions(options.cargos2_ab || []);
+      if (!dashboardCargoOptions.length) dashboardCargoOptionsLoaded = false;
       renderDashboardCargoOptions();
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
       fillSelectOptions("dashEstadoFilter", "Estado", options.estados || []);
@@ -2802,6 +2817,7 @@ document.addEventListener("DOMContentLoaded", () => {
       selectedDashboardCargos.clear();
       const cargoSearch = document.getElementById("dashCargo2Search");
       if (cargoSearch) cargoSearch.value = "";
+      dashboardCargoOptionsLoaded = false;
       renderDashboardCargoOptions();
       document.getElementById("dashDniFilter").value = "";
       document.getElementById("dashSoFilter").value = "";
@@ -3400,9 +3416,14 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
         });
         await refreshDashboard();
         await buscar();
+        dashboardCargoOptionsLoaded = false;
+        await cargarOpcionesCargoDashboard(true);
+        const cargoInfo = response.cargos_detectados !== undefined
+          ? ` Cargos detectados: ${response.cargos_detectados}.`
+          : "";
         alert(response.persisted
-          ? `${response.mensaje}. Registros procesados: ${response.registros}. Quedo guardada.`
-          : `${response.mensaje}. Registros procesados: ${response.registros}. Advertencia: no se pudo guardar de forma persistente en el servidor.`
+          ? `${response.mensaje}. Registros procesados: ${response.registros}.${cargoInfo} Quedo guardada.`
+          : `${response.mensaje}. Registros procesados: ${response.registros}.${cargoInfo} Advertencia: no se pudo guardar de forma persistente en el servidor.`
         );
       } catch (error) {
         console.error(error);
