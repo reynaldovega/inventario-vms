@@ -1431,6 +1431,21 @@
           <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
+          <div class="multi-select dashboard-cargo-filter" id="dashCargoNFilter">
+            <button class="multi-select-trigger" type="button" onclick="toggleMultiSelect('dashCargoNFilter')">
+              <span class="multi-select-label" data-multi-label>Cargo solicitud</span>
+              <span class="multi-select-count hidden" data-multi-count>0</span>
+              <span class="multi-select-caret">v</span>
+            </button>
+            <div class="multi-select-panel">
+              <input class="multi-select-search" id="dashCargoNSearch" type="text" placeholder="Buscar cargo N" oninput="renderDashboardCargoNOptions()">
+              <div class="multi-select-list" data-multi-options></div>
+              <div class="multi-select-actions">
+                <button class="secondary" type="button" onclick="clearDashboardCargoNSelection()">Limpiar cargos</button>
+                <button type="button" onclick="applyDashboardCargoNSelection()">Aplicar</button>
+              </div>
+            </div>
+          </div>
           <div class="multi-select dashboard-cargo-filter" id="dashCargo2Filter">
             <button class="multi-select-trigger" type="button" onclick="toggleMultiSelect('dashCargo2Filter')">
               <span class="multi-select-label" data-multi-label>Cargo actual</span>
@@ -1620,7 +1635,9 @@
     let inactivityTimer = null;
     let sessionIdleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS;
     let dashboardLoadedOnce = false;
+    let selectedDashboardCargosN = new Set();
     let selectedDashboardCargos = new Set();
+    let dashboardCargoNOptions = [];
     let dashboardCargoOptions = [];
     let dashboardCargoOptionsLoaded = false;
     let currentApplications = [];
@@ -2309,7 +2326,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Solicitante", "Cargo", "Jefe inmediato", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo solicitud", "Solicitante", "Cargo actual", "Jefe inmediato", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
       ];
 
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
@@ -2326,6 +2343,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.ticket || "-"}</td>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.cargo_n || "-"}</td>
           <td>${item.solicitante || "-"}</td>
           <td>${item.cargo2_ab || "-"}</td>
           <td>${item.jefe_inmediato || "-"}</td>
@@ -2667,6 +2685,7 @@ document.addEventListener("DOMContentLoaded", () => {
         q: document.getElementById("dashQuery").value.trim(),
         area: document.getElementById("dashAreaFilter").value,
         centro_costo: document.getElementById("dashCentroFilter").value,
+        cargo_n: [...selectedDashboardCargosN].join("||"),
         cargo2_ab: [...selectedDashboardCargos].join("||"),
         dni: document.getElementById("dashDniFilter").value.trim(),
         sistema_operativo: document.getElementById("dashSoFilter").value,
@@ -2704,7 +2723,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (willOpen) {
         const search = control.querySelector(".multi-select-search");
         if (search) search.focus();
-        if (id === "dashCargo2Filter") cargarOpcionesCargoDashboard();
+        if (id === "dashCargo2Filter" || id === "dashCargoNFilter") cargarOpcionesCargoDashboard();
       }
     }
 
@@ -2737,6 +2756,14 @@ document.addEventListener("DOMContentLoaded", () => {
         ...((data.filter_options && data.filter_options.cargos2_ab) || []),
         ...(data.por_cargo2_ab || []).map(item => item.cargo2_ab),
         ...(data.asignadas || []).map(item => item.cargo2_ab),
+      ];
+      return cleanDashboardCargoOptions(cargos);
+    }
+
+    function dashboardCargoNOptionsFromData(data) {
+      const cargos = [
+        ...((data.filter_options && data.filter_options.cargos_n) || []),
+        ...(data.asignadas || []).map(item => item.cargo_n),
       ];
       return cleanDashboardCargoOptions(cargos);
     }
@@ -2791,16 +2818,30 @@ document.addEventListener("DOMContentLoaded", () => {
       fillMultiSelectOptions("dashCargo2Filter", "Cargo actual", dashboardCargoOptions, selectedDashboardCargos, search ? search.value : "");
     }
 
+    function renderDashboardCargoNOptions() {
+      const search = document.getElementById("dashCargoNSearch");
+      fillMultiSelectOptions("dashCargoNFilter", "Cargo solicitud", dashboardCargoNOptions, selectedDashboardCargosN, search ? search.value : "");
+    }
+
     async function cargarOpcionesCargoDashboard(force = false) {
       if (dashboardCargoOptionsLoaded && !force) return;
       try {
         const payload = await jsonFetch(`${apiBase}/dashboard-vms-cargos`);
+        dashboardCargoNOptions = cleanDashboardCargoOptions(payload.cargos_n || []);
         dashboardCargoOptions = cleanDashboardCargoOptions(payload.cargos2_ab || []);
         dashboardCargoOptionsLoaded = true;
       } catch (error) {
         console.warn("No se pudieron cargar cargos del dashboard", error);
       }
+      renderDashboardCargoNOptions();
       renderDashboardCargoOptions();
+    }
+
+    function clearDashboardCargoNSelection() {
+      selectedDashboardCargosN.clear();
+      const search = document.getElementById("dashCargoNSearch");
+      if (search) search.value = "";
+      renderDashboardCargoNOptions();
     }
 
     function clearDashboardCargoSelection() {
@@ -2815,11 +2856,18 @@ document.addEventListener("DOMContentLoaded", () => {
       cargarDashboardVms();
     }
 
+    function applyDashboardCargoNSelection() {
+      document.getElementById("dashCargoNFilter").classList.remove("open");
+      cargarDashboardVms();
+    }
+
     function updateDashboardFilterOptions(options, data = null) {
       fillSelectOptions("dashAreaFilter", "Campana", options.areas || []);
       fillSelectOptions("dashCentroFilter", "Subservicio", options.centros_costo || []);
+      dashboardCargoNOptions = data ? dashboardCargoNOptionsFromData(data) : cleanDashboardCargoOptions(options.cargos_n || []);
       dashboardCargoOptions = data ? dashboardCargoOptionsFromData(data) : cleanDashboardCargoOptions(options.cargos2_ab || []);
-      if (!dashboardCargoOptions.length) dashboardCargoOptionsLoaded = false;
+      if (!dashboardCargoNOptions.length || !dashboardCargoOptions.length) dashboardCargoOptionsLoaded = false;
+      renderDashboardCargoNOptions();
       renderDashboardCargoOptions();
       fillSelectOptions("dashSoFilter", "Sistema operativo", options.sistemas_operativos || []);
       fillSelectOptions("dashEstadoFilter", "Estado", options.estados || []);
@@ -2829,10 +2877,14 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("dashQuery").value = "";
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
+      selectedDashboardCargosN.clear();
       selectedDashboardCargos.clear();
+      const cargoNSearch = document.getElementById("dashCargoNSearch");
+      if (cargoNSearch) cargoNSearch.value = "";
       const cargoSearch = document.getElementById("dashCargo2Search");
       if (cargoSearch) cargoSearch.value = "";
       dashboardCargoOptionsLoaded = false;
+      renderDashboardCargoNOptions();
       renderDashboardCargoOptions();
       document.getElementById("dashDniFilter").value = "";
       document.getElementById("dashSoFilter").value = "";
@@ -2975,7 +3027,7 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Solicitante", "Cargo", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo solicitud", "Solicitante", "Cargo actual", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
@@ -2984,6 +3036,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.nombre_completo || "-"}</td>
           <td>${item.area || "-"}</td>
           <td>${item.centro_costo || "-"}</td>
+          <td>${item.cargo_n || "-"}</td>
           <td>${item.solicitante || "-"}</td>
           <td>${item.cargo2_ab || "-"}</td>
           <td>${item.jefe_inmediato || "-"}</td>
@@ -3434,7 +3487,7 @@ async function refreshSearchDashboard(query, tipoEntorno, status) {
         dashboardCargoOptionsLoaded = false;
         await cargarOpcionesCargoDashboard(true);
         const cargoInfo = response.cargos_detectados !== undefined
-          ? ` Cargos detectados: ${response.cargos_detectados}.`
+          ? ` Cargos N detectados: ${response.cargos_n_detectados || 0}. Cargos AC detectados: ${response.cargos_detectados}.`
           : "";
         alert(response.persisted
           ? `${response.mensaje}. Registros procesados: ${response.registros}.${cargoInfo} Quedo guardada.`
@@ -3526,7 +3579,7 @@ function limpiar() {
       await buscar();
     });
 
-    ["dashAreaFilter", "dashCentroFilter", "dashCargo2Filter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
+    ["dashAreaFilter", "dashCentroFilter", "dashSoFilter", "dashEstadoFilter"].forEach((id) => {
       document.getElementById(id).addEventListener("change", () => cargarDashboardVms());
     });
 

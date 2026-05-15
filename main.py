@@ -1114,6 +1114,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed["area"] = safe_col(raw, 3).map(clean_value)
     processed["centro_costo"] = safe_col(raw, 4).map(clean_value)
     processed["dni"] = safe_col(raw, 5).map(clean_value)
+    processed["cargo_n"] = safe_col(raw, 13).map(clean_value)
     processed["tipo_entorno"] = safe_col(raw, 14).map(clean_value)
     processed["hostname"] = safe_col(raw, 16).map(clean_value)
     processed["ticket"] = safe_col(raw, 23).map(clean_value)
@@ -1175,6 +1176,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
                 "ticket",
                 "area",
                 "centro_costo",
+                "cargo_n",
                 "solicitante",
                 "cargo2_ab",
                 "jefe_inmediato",
@@ -1312,10 +1314,19 @@ def dashboard_filter_options(merged: pd.DataFrame) -> dict:
 
     cargo_values = set(unique_values("cargo2_ab", limit=2000))
     cargo_values.update(inventory_cargo_options(limit=2000))
+    cargo_n_values = set(unique_values("cargo_n", limit=2000))
+    inventory = ensure_data_loaded()
+    if "cargo_n" in inventory:
+        cargo_n_values.update(
+            clean_value(value)
+            for value in inventory["cargo_n"].fillna("").astype(str)
+            if clean_value(value)
+        )
 
     return {
         "areas": unique_values("area"),
         "centros_costo": unique_values("centro_costo"),
+        "cargos_n": sorted(cargo_n_values)[:500],
         "cargos2_ab": sorted(cargo_values)[:500],
         "sistemas_operativos": unique_values("so_version"),
         "estados": ["ASIGNADA", "LIBRE"],
@@ -1333,6 +1344,20 @@ def inventory_cargo_options(limit: int = 500) -> list[str]:
             if clean_value(value)
     )
     return sorted(values)[:limit]
+
+
+def inventory_cargo_n_options(limit: int = 500) -> list[str]:
+    inventory = ensure_data_loaded()
+    if "cargo_n" not in inventory:
+        return []
+    values = sorted(
+        {
+            clean_value(value)
+            for value in inventory["cargo_n"].fillna("").astype(str)
+            if clean_value(value)
+        }
+    )
+    return values[:limit]
 
 
 def raw_inventory_cargo_options(limit: int = 500) -> list[str]:
@@ -1368,6 +1393,7 @@ def filter_dashboard_rows(
     q: str = "",
     area: str = "",
     centro_costo: str = "",
+    cargo_n: str = "",
     cargo2_ab: str = "",
     dni: str = "",
     sistema_operativo: str = "",
@@ -1384,6 +1410,7 @@ def filter_dashboard_rows(
     multi_filters = {
         "area": area,
         "centro_costo": centro_costo,
+        "cargo_n": cargo_n,
         "cargo2_ab": cargo2_ab,
         "so_version": sistema_operativo,
         "estado_cruce": estado,
@@ -1429,7 +1456,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "solicitante", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo_n", "solicitante", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
@@ -1445,6 +1472,7 @@ def build_vms_dashboard_data(
     q: str = "",
     area: str = "",
     centro_costo: str = "",
+    cargo_n: str = "",
     cargo2_ab: str = "",
     dni: str = "",
     sistema_operativo: str = "",
@@ -1464,11 +1492,11 @@ def build_vms_dashboard_data(
             "por_so": [],
             "asignadas": [],
             "libres": [],
-            "filter_options": {"areas": [], "centros_costo": [], "cargos2_ab": inventory_cargo_options(), "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
+            "filter_options": {"areas": [], "centros_costo": [], "cargos_n": inventory_cargo_n_options(), "cargos2_ab": inventory_cargo_options(), "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
             "storage": data_dir_status(),
         }
 
-    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado)
 
     assigned_rows = filtered[filtered["estado_cruce"] == "ASIGNADA"].copy()
     free_rows = filtered[filtered["estado_cruce"] == "LIBRE"].copy()
@@ -1637,7 +1665,7 @@ def smart_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
     normalized_fields = {
         field: df[field].map(normalize_text)
-        for field in ["dni", "ip", "anexo", "hostname", "ticket", "area", "centro_costo", "solicitante", "cargo2_ab", "jefe_inmediato", "so"]
+        for field in ["dni", "ip", "anexo", "hostname", "ticket", "area", "centro_costo", "cargo_n", "solicitante", "cargo2_ab", "jefe_inmediato", "so"]
         if field in df.columns
     }
 
@@ -1950,6 +1978,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
                 "ticket",
                 "area",
                 "centro_costo",
+                "cargo_n",
                 "solicitante",
                 "cargo2_ab",
                 "jefe_inmediato",
@@ -1972,6 +2001,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
             "ticket": scoped["ticket"],
             "area": scoped["area"],
             "centro_costo": scoped["centro_costo"],
+            "cargo_n": scoped["cargo_n"] if "cargo_n" in scoped else "",
             "solicitante": scoped["solicitante"] if "solicitante" in scoped else "",
             "cargo2_ab": scoped["cargo2_ab"],
             "jefe_inmediato": scoped["jefe_inmediato"] if "jefe_inmediato" in scoped else "",
@@ -1998,6 +2028,7 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
             "ticket": scoped["ticket"] if "ticket" in scoped else "",
             "area": scoped["area"] if "area" in scoped else "",
             "centro_costo": scoped["centro_costo"] if "centro_costo" in scoped else "",
+            "cargo_n": scoped["cargo_n"] if "cargo_n" in scoped else "",
             "solicitante": scoped["solicitante"] if "solicitante" in scoped else "",
             "cargo2_ab": scoped["cargo2_ab"] if "cargo2_ab" in scoped else "",
             "jefe_inmediato": scoped["jefe_inmediato"] if "jefe_inmediato" in scoped else "",
@@ -2024,6 +2055,7 @@ def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
         "nombre_completo",
         "area",
         "centro_costo",
+        "cargo_n",
         "solicitante",
         "cargo2_ab",
         "jefe_inmediato",
@@ -2794,11 +2826,14 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     df_global = loaded_df
     current_file_name = file.filename or "archivo_subido.xlsx"
     persisted = save_main_upload(current_file_name, content)
+    cargos_n = inventory_cargo_n_options(limit=20)
     cargos = inventory_cargo_options(limit=20)
     return {
         "mensaje": "Archivo cargado correctamente",
         "registros": int(len(df_global)),
         "archivo": current_file_name,
+        "cargos_n_detectados": len(inventory_cargo_n_options(limit=2000)),
+        "muestra_cargos_n": cargos_n,
         "cargos_detectados": len(inventory_cargo_options(limit=2000)),
         "muestra_cargos": cargos,
         "persisted": persisted,
@@ -2834,25 +2869,30 @@ def dashboard_vms(
     q: str = Query(default=""),
     area: str = Query(default=""),
     centro_costo: str = Query(default=""),
+    cargo_n: str = Query(default=""),
     cargo2_ab: str = Query(default=""),
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
     estado: str = Query(default=""),
 ):
     require_permission(request, "dashboard_vms")
-    return build_vms_dashboard_data(q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
+    return build_vms_dashboard_data(q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado)
 
 
 @app.get("/dashboard-vms-cargos")
 def dashboard_vms_cargos(request: Request):
     require_permission(request, "dashboard_vms")
     cargos = inventory_cargo_options()
+    cargos_n = inventory_cargo_n_options()
     inventory = ensure_data_loaded()
     return {
+        "cargos_n": cargos_n,
         "cargos2_ab": cargos,
+        "total_cargos_n": len(cargos_n),
         "total": len(cargos),
         "archivo_principal": current_file_name,
         "registros_principal": int(len(inventory)),
+        "muestra_cargos_n": cargos_n[:10],
         "muestra": cargos[:10],
     }
 
@@ -2863,6 +2903,7 @@ def export_dashboard_vms(
     q: str = Query(default=""),
     area: str = Query(default=""),
     centro_costo: str = Query(default=""),
+    cargo_n: str = Query(default=""),
     cargo2_ab: str = Query(default=""),
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
@@ -2871,7 +2912,7 @@ def export_dashboard_vms(
 ):
     require_permission(request, "exportar")
     merged, _, _ = build_vms_dashboard_rows()
-    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo2_ab, dni, sistema_operativo, estado)
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado)
     export_df = get_vms_dashboard_export_dataframe(filtered, segment)
 
     output = io.BytesIO()
