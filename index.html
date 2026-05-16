@@ -792,28 +792,6 @@
       grid-column: span 2;
     }
 
-    .vm-type-filter {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-      grid-column: 1 / -1;
-    }
-
-    .vm-type-filter button {
-      min-height: 38px;
-      background: white;
-      color: var(--brand-dark);
-      border: 1px solid var(--line);
-      box-shadow: 0 8px 18px rgba(76, 56, 33, 0.06);
-    }
-
-    .vm-type-filter button.active {
-      background: var(--brand);
-      color: white;
-      border-color: transparent;
-    }
-
     .multi-select-trigger {
       width: 100%;
       min-height: 44px;
@@ -1465,13 +1443,13 @@
           <button class="secondary hidden admin-export" id="exportDashboardButton" onclick="descargarDashboardVms()" type="button">Exportar filtrado</button>
         </div>
         <div class="inline-form dashboard-filters">
-          <div class="vm-type-filter" aria-label="Filtro por tipo de VM">
-            <button class="active" data-vm-ts-filter="" onclick="setDashboardTipoVmTs('')" type="button">Todos</button>
-            <button data-vm-ts-filter="VMM" onclick="setDashboardTipoVmTs('VMM')" type="button">VMM</button>
-            <button data-vm-ts-filter="ANEXO" onclick="setDashboardTipoVmTs('ANEXO')" type="button">Anexo</button>
-            <button data-vm-ts-filter="TERMINAL SERVER" onclick="setDashboardTipoVmTs('TERMINAL SERVER')" type="button">Terminal Server</button>
-          </div>
           <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
+          <select id="dashTipoVmTsFilter" onchange="setDashboardTipoVmTs(this.value)">
+            <option value="">Tipo VM/TS</option>
+            <option value="TERMINAL SERVER">Terminal Server</option>
+            <option value="ANEXO">Anexo</option>
+            <option value="VMM">VMM</option>
+          </select>
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
           <div class="multi-select dashboard-cargo-filter" id="dashCargoNFilter">
@@ -2757,15 +2735,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    function updateDashboardTipoVmTsButtons() {
-      document.querySelectorAll("[data-vm-ts-filter]").forEach((button) => {
-        button.classList.toggle("active", button.dataset.vmTsFilter === selectedDashboardTipoVmTs);
-      });
-    }
-
     function setDashboardTipoVmTs(value) {
       selectedDashboardTipoVmTs = value || "";
-      updateDashboardTipoVmTsButtons();
+      const select = document.getElementById("dashTipoVmTsFilter");
+      if (select && select.value !== selectedDashboardTipoVmTs) select.value = selectedDashboardTipoVmTs;
       cargarDashboardVms();
     }
 
@@ -2934,7 +2907,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function resetDashboardFilterControls() {
       document.getElementById("dashQuery").value = "";
       selectedDashboardTipoVmTs = "";
-      updateDashboardTipoVmTsButtons();
+      document.getElementById("dashTipoVmTsFilter").value = "";
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
       selectedDashboardCargosN.clear();

@@ -65,7 +65,7 @@ PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin").strip().lower() or "admin"
-APP_BUILD = "dashboard-tipo-vm-ts-2026-05-16-01"
+APP_BUILD = "dashboard-tipo-vm-ts-select-2026-05-16-01"
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
@@ -1249,7 +1249,7 @@ def normalize_vm_ts_group(value: object) -> str:
         return "TERMINAL SERVER"
     if "anexo" in normalized:
         return "ANEXO"
-    if "vmm" in normalized or normalized in {"vm", "vms"}:
+    if "vmm" in normalized or normalized in {"vm", "vms", "vmts", "vmsts", "vmmts"}:
         return "VMM"
     return clean_value(value).upper()
 
@@ -1468,8 +1468,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
         return pd.DataFrame(), infra_file_name, 0
     if "tipo_vms_ts" not in infra:
         infra["tipo_vms_ts"] = ""
-    if "tipo_vms_ts_grupo" not in infra:
-        infra["tipo_vms_ts_grupo"] = infra["tipo_vms_ts"].map(normalize_vm_ts_group)
+    infra["tipo_vms_ts_grupo"] = infra["tipo_vms_ts"].map(normalize_vm_ts_group)
 
     assigned = inventory[has_valid_ip(inventory["ip"])].copy()
     assigned["ip_norm"] = assigned["ip"].map(normalize_text)
@@ -1485,6 +1484,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
         merged["tipo_vms_ts_grupo"] != "",
         merged.get("tipo_entorno", "").map(normalize_vm_ts_group),
     )
+    merged["tipo_vms_ts_grupo"] = merged["tipo_vms_ts_grupo"].map(normalize_vm_ts_group)
     merged["estado_cruce"] = merged["_assigned_evidence"].apply(lambda value: "ASIGNADA" if clean_value(value) else "LIBRE")
     merged["so_inventario"] = merged.get("so", "")
     merged["so_version"] = merged["so_version"].where(merged["so_version"] != "", merged["so_inventario"].map(normalize_os_version))
