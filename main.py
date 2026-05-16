@@ -65,7 +65,7 @@ PASSWORD_POLICY_VERSION = int(os.getenv("PASSWORD_POLICY_VERSION", "2"))
 DEFAULT_SECRET_KEY = "inventario-vms-session-key-2026"
 SECRET_KEY = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin").strip().lower() or "admin"
-APP_BUILD = "cargo-ac-selector-2026-05-15-01"
+APP_BUILD = "dashboard-tipo-vm-ts-2026-05-16-01"
 
 df_global = pd.DataFrame()
 current_file_name = DEFAULT_EXCEL.name if DEFAULT_EXCEL else ""
@@ -1219,8 +1219,9 @@ def load_infra_dataframe_from_excel(file_source) -> pd.DataFrame:
     raw = pd.read_excel(file_source, dtype=str).fillna("")
     raw.columns = [clean_value(col) for col in raw.columns]
     processed = pd.DataFrame()
-    processed["ip"] = get_series_by_header_alias(raw, ["IPAddress", "IP Address", "IP"]).map(clean_value).str.strip()
-    processed["tipo_vms_ts"] = get_series_by_header_alias(raw, ["VMM/TS", "VMS/TS", "VMM TS"]).map(clean_value)
+    processed["ip"] = get_series_by_header_alias(raw, ["IPAddress", "IP Address", "IP", "IPVirtualoTS", "IPVirtualóTS", "IP Virtual TS"]).map(clean_value).str.strip()
+    processed["tipo_vms_ts"] = get_series_by_header_alias(raw, ["VMM/TS", "VMS/TS", "VMM TS", "VM/TS", "VM\\TS", "VMM\\TS"]).map(clean_value)
+    processed["tipo_vms_ts_grupo"] = processed["tipo_vms_ts"].map(normalize_vm_ts_group)
     processed["hostname_infra"] = get_series_by_header_alias(raw, ["HOSTNAME INFRA", "Hostname Infra"]).map(clean_value)
     processed["sistema_operativo"] = get_series_by_header_alias(raw, ["Sistema Operativo", "SO"]).map(clean_value)
     processed["fecha_entrega"] = format_date(get_series_by_header_alias(raw, ["FECHA ENTREGA VMS", "Fecha Entrega"]))
@@ -1238,6 +1239,19 @@ def normalize_os_version(value: object) -> str:
     if "windows" in normalized:
         return clean_value(value).upper()
     return ""
+
+
+def normalize_vm_ts_group(value: object) -> str:
+    normalized = normalize_header_key(value)
+    if not normalized:
+        return ""
+    if "terminalserver" in normalized or normalized in {"ts", "terminal"}:
+        return "TERMINAL SERVER"
+    if "anexo" in normalized:
+        return "ANEXO"
+    if "vmm" in normalized or normalized in {"vm", "vms"}:
+        return "VMM"
+    return clean_value(value).upper()
 
 
 def save_infra_upload(file_name: str, content: bytes) -> bool:
@@ -1329,6 +1343,7 @@ def dashboard_filter_options(merged: pd.DataFrame) -> dict:
         "cargos_n": sorted(cargo_n_values)[:500],
         "cargos2_ab": sorted(cargo_values)[:500],
         "sistemas_operativos": unique_values("so_version"),
+        "tipos_vm_ts": ["VMM", "ANEXO", "TERMINAL SERVER"],
         "estados": ["ASIGNADA", "LIBRE"],
     }
 
@@ -1398,6 +1413,7 @@ def filter_dashboard_rows(
     dni: str = "",
     sistema_operativo: str = "",
     estado: str = "",
+    tipo_vm_ts: str = "",
 ) -> pd.DataFrame:
     result = merged.copy()
 
@@ -1414,6 +1430,7 @@ def filter_dashboard_rows(
         "cargo2_ab": cargo2_ab,
         "so_version": sistema_operativo,
         "estado_cruce": estado,
+        "tipo_vms_ts_grupo": tipo_vm_ts,
     }
     for field, value in multi_filters.items():
         selected_values = split_multi_filter(value)
@@ -1449,6 +1466,10 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     infra = ensure_infra_loaded().copy()
     if infra.empty:
         return pd.DataFrame(), infra_file_name, 0
+    if "tipo_vms_ts" not in infra:
+        infra["tipo_vms_ts"] = ""
+    if "tipo_vms_ts_grupo" not in infra:
+        infra["tipo_vms_ts_grupo"] = infra["tipo_vms_ts"].map(normalize_vm_ts_group)
 
     assigned = inventory[has_valid_ip(inventory["ip"])].copy()
     assigned["ip_norm"] = assigned["ip"].map(normalize_text)
@@ -1456,10 +1477,14 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo_n", "solicitante", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo_n", "tipo_entorno", "solicitante", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
+    merged["tipo_vms_ts_grupo"] = merged["tipo_vms_ts_grupo"].where(
+        merged["tipo_vms_ts_grupo"] != "",
+        merged.get("tipo_entorno", "").map(normalize_vm_ts_group),
+    )
     merged["estado_cruce"] = merged["_assigned_evidence"].apply(lambda value: "ASIGNADA" if clean_value(value) else "LIBRE")
     merged["so_inventario"] = merged.get("so", "")
     merged["so_version"] = merged["so_version"].where(merged["so_version"] != "", merged["so_inventario"].map(normalize_os_version))
@@ -1477,6 +1502,7 @@ def build_vms_dashboard_data(
     dni: str = "",
     sistema_operativo: str = "",
     estado: str = "",
+    tipo_vm_ts: str = "",
 ) -> dict:
     merged, archivo, total_infra = build_vms_dashboard_rows()
     if merged.empty:
@@ -1492,11 +1518,11 @@ def build_vms_dashboard_data(
             "por_so": [],
             "asignadas": [],
             "libres": [],
-            "filter_options": {"areas": [], "centros_costo": [], "cargos_n": inventory_cargo_n_options(), "cargos2_ab": inventory_cargo_options(), "sistemas_operativos": [], "estados": ["ASIGNADA", "LIBRE"]},
+            "filter_options": {"areas": [], "centros_costo": [], "cargos_n": inventory_cargo_n_options(), "cargos2_ab": inventory_cargo_options(), "sistemas_operativos": [], "tipos_vm_ts": ["VMM", "ANEXO", "TERMINAL SERVER"], "estados": ["ASIGNADA", "LIBRE"]},
             "storage": data_dir_status(),
         }
 
-    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado)
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado, tipo_vm_ts)
 
     assigned_rows = filtered[filtered["estado_cruce"] == "ASIGNADA"].copy()
     free_rows = filtered[filtered["estado_cruce"] == "LIBRE"].copy()
@@ -2064,6 +2090,8 @@ def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
         "ticket",
         "sistema_operativo",
         "so_version",
+        "tipo_vms_ts",
+        "tipo_vms_ts_grupo",
         "fecha_entrega",
         "inventario_search_blob",
     ]
@@ -2874,9 +2902,10 @@ def dashboard_vms(
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
     estado: str = Query(default=""),
+    tipo_vm_ts: str = Query(default=""),
 ):
     require_permission(request, "dashboard_vms")
-    return build_vms_dashboard_data(q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado)
+    return build_vms_dashboard_data(q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado, tipo_vm_ts)
 
 
 @app.get("/dashboard-vms-cargos")
@@ -2908,11 +2937,12 @@ def export_dashboard_vms(
     dni: str = Query(default=""),
     sistema_operativo: str = Query(default=""),
     estado: str = Query(default=""),
+    tipo_vm_ts: str = Query(default=""),
     segment: str = Query(default="filtrado"),
 ):
     require_permission(request, "exportar")
     merged, _, _ = build_vms_dashboard_rows()
-    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado)
+    filtered = filter_dashboard_rows(merged, q, area, centro_costo, cargo_n, cargo2_ab, dni, sistema_operativo, estado, tipo_vm_ts)
     export_df = get_vms_dashboard_export_dataframe(filtered, segment)
 
     output = io.BytesIO()

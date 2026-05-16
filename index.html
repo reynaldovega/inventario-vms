@@ -792,6 +792,28 @@
       grid-column: span 2;
     }
 
+    .vm-type-filter {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      grid-column: 1 / -1;
+    }
+
+    .vm-type-filter button {
+      min-height: 38px;
+      background: white;
+      color: var(--brand-dark);
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 18px rgba(76, 56, 33, 0.06);
+    }
+
+    .vm-type-filter button.active {
+      background: var(--brand);
+      color: white;
+      border-color: transparent;
+    }
+
     .multi-select-trigger {
       width: 100%;
       min-height: 44px;
@@ -1443,6 +1465,12 @@
           <button class="secondary hidden admin-export" id="exportDashboardButton" onclick="descargarDashboardVms()" type="button">Exportar filtrado</button>
         </div>
         <div class="inline-form dashboard-filters">
+          <div class="vm-type-filter" aria-label="Filtro por tipo de VM">
+            <button class="active" data-vm-ts-filter="" onclick="setDashboardTipoVmTs('')" type="button">Todos</button>
+            <button data-vm-ts-filter="VMM" onclick="setDashboardTipoVmTs('VMM')" type="button">VMM</button>
+            <button data-vm-ts-filter="ANEXO" onclick="setDashboardTipoVmTs('ANEXO')" type="button">Anexo</button>
+            <button data-vm-ts-filter="TERMINAL SERVER" onclick="setDashboardTipoVmTs('TERMINAL SERVER')" type="button">Terminal Server</button>
+          </div>
           <input type="text" id="dashQuery" placeholder="Buscar en toda la base; separa varios por coma">
           <select id="dashAreaFilter"><option value="">Campana</option></select>
           <select id="dashCentroFilter"><option value="">Subservicio</option></select>
@@ -1652,6 +1680,7 @@
     let dashboardLoadedOnce = false;
     let selectedDashboardCargosN = new Set();
     let selectedDashboardCargos = new Set();
+    let selectedDashboardTipoVmTs = "";
     let dashboardCargoNOptions = [];
     let dashboardCargoOptions = [];
     let dashboardCargoOptionsLoaded = false;
@@ -2705,6 +2734,7 @@ document.addEventListener("DOMContentLoaded", () => {
         dni: document.getElementById("dashDniFilter").value.trim(),
         sistema_operativo: document.getElementById("dashSoFilter").value,
         estado: document.getElementById("dashEstadoFilter").value,
+        tipo_vm_ts: selectedDashboardTipoVmTs,
       });
     }
 
@@ -2725,6 +2755,18 @@ document.addEventListener("DOMContentLoaded", () => {
       if ([...select.options].some(option => option.value === current)) {
         select.value = current;
       }
+    }
+
+    function updateDashboardTipoVmTsButtons() {
+      document.querySelectorAll("[data-vm-ts-filter]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.vmTsFilter === selectedDashboardTipoVmTs);
+      });
+    }
+
+    function setDashboardTipoVmTs(value) {
+      selectedDashboardTipoVmTs = value || "";
+      updateDashboardTipoVmTsButtons();
+      cargarDashboardVms();
     }
 
     function toggleMultiSelect(id) {
@@ -2891,6 +2933,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function resetDashboardFilterControls() {
       document.getElementById("dashQuery").value = "";
+      selectedDashboardTipoVmTs = "";
+      updateDashboardTipoVmTsButtons();
       document.getElementById("dashAreaFilter").value = "";
       document.getElementById("dashCentroFilter").value = "";
       selectedDashboardCargosN.clear();
@@ -3032,8 +3076,8 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       renderMiniTable(
         "tablaDashLibres",
-        ["IP", "Hostname", "SO"],
-        (data.libres || []).slice(0, 120).map(item => `<tr><td>${item.ip}</td><td>${item.hostname_infra || "-"}</td><td>${item.so_version || item.sistema_operativo || "-"}</td></tr>`),
+        ["IP", "Tipo", "Hostname", "SO"],
+        (data.libres || []).slice(0, 120).map(item => `<tr><td>${item.ip}</td><td>${item.tipo_vms_ts_grupo || item.tipo_vms_ts || "-"}</td><td>${item.hostname_infra || "-"}</td><td>${item.so_version || item.sistema_operativo || "-"}</td></tr>`),
         "Sin VMs libres"
       );
       const table = document.getElementById("tablaDashAsignadas");
@@ -3043,10 +3087,11 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo solicitud", "Solicitante", "Cargo actual", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "Tipo", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo solicitud", "Solicitante", "Cargo actual", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
+          <td>${item.tipo_vms_ts_grupo || item.tipo_vms_ts || "-"}</td>
           <td>${item.anexo || "-"}</td>
           <td>${item.dni || "-"}</td>
           <td>${item.nombre_completo || "-"}</td>
