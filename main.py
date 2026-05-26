@@ -159,6 +159,13 @@ otp_store = {}  # {username: (codigo, expira)}
 invite_store = {}
 password_reset_store = {}
 login_attempts = {}
+USER_LOAD_STATUS = {
+    "source": "defaults",
+    "raw_present": False,
+    "error": "",
+    "loaded_count": len(USERS),
+    "skipped": [],
+}
 EXCLUDED_ASSIGNMENT_TAGS = [
     "no existe",
     "dotacion",
@@ -756,21 +763,47 @@ def send_temporary_password_email(destino: str, display_name: str, temporary_pas
 
 
 def load_users_from_env() -> dict:
+    global USER_LOAD_STATUS
     raw_users = os.getenv("APP_USERS_JSON", "").strip()
     if not raw_users:
+        USER_LOAD_STATUS = {
+            "source": "defaults",
+            "raw_present": False,
+            "error": "",
+            "loaded_count": len(USERS),
+            "skipped": [],
+        }
         return USERS
 
     try:
         parsed = json.loads(raw_users)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        USER_LOAD_STATUS = {
+            "source": "defaults",
+            "raw_present": True,
+            "error": f"APP_USERS_JSON invalido: {exc.msg} en linea {exc.lineno}, columna {exc.colno}",
+            "loaded_count": len(USERS),
+            "skipped": [],
+        }
+        print(f"[WARN] {USER_LOAD_STATUS['error']}", flush=True)
         return USERS
 
     loaded_users = {}
+    skipped_users = []
     if not isinstance(parsed, list):
+        USER_LOAD_STATUS = {
+            "source": "defaults",
+            "raw_present": True,
+            "error": "APP_USERS_JSON debe ser una lista JSON",
+            "loaded_count": len(USERS),
+            "skipped": [],
+        }
+        print(f"[WARN] {USER_LOAD_STATUS['error']}", flush=True)
         return USERS
 
     for item in parsed:
         if not isinstance(item, dict):
+            skipped_users.append({"username": "", "reason": "item_no_es_objeto"})
             continue
         username = str(item.get("username", "")).strip().lower()
         password = str(item.get("password", ""))
@@ -784,7 +817,14 @@ def load_users_from_env() -> dict:
         force_password_change = bool(item.get("force_password_change", True))
         permissions = normalize_permissions(item.get("permissions"), role)
 
-        if not username or (not password and not password_hash) or role not in {"admin", "tecnologia", "invitado"}:
+        if not username:
+            skipped_users.append({"username": "", "email": email, "reason": "sin_username"})
+            continue
+        if not password and not password_hash:
+            skipped_users.append({"username": username, "email": email, "reason": "sin_password"})
+            continue
+        if role not in {"admin", "tecnologia", "invitado"}:
+            skipped_users.append({"username": username, "email": email, "reason": "rol_invalido"})
             continue
 
         loaded_users[username] = {
@@ -799,6 +839,15 @@ def load_users_from_env() -> dict:
             "permissions": permissions,
         }
 
+    USER_LOAD_STATUS = {
+        "source": "env" if loaded_users else "defaults",
+        "raw_present": True,
+        "error": "" if loaded_users else "APP_USERS_JSON no cargo ningun usuario valido",
+        "loaded_count": len(loaded_users) if loaded_users else len(USERS),
+        "skipped": skipped_users,
+    }
+    if USER_LOAD_STATUS["error"]:
+        print(f"[WARN] {USER_LOAD_STATUS['error']}", flush=True)
     return loaded_users or USERS
 
 
@@ -2415,6 +2464,30 @@ def logout(request: Request, response: Response):
 def me(request: Request):
     user = get_current_user(request)
     return auth_user_payload(user["username"], user)
+
+
+@app.get("/admin/users-debug")
+def admin_users_debug(request: Request):
+    require_super_admin(request)
+    users = []
+    for username, user in sorted(USERS.items()):
+        users.append(
+            {
+                "username": username,
+                "role": user.get("role", ""),
+                "display_name": user.get("display_name", ""),
+                "email": user.get("email", ""),
+                "email_hint": mask_email(user.get("email", "")),
+                "permissions": user_permissions(user),
+                "from_app_users_json": username in ENV_USERNAMES,
+            }
+        )
+    return {
+        "ok": True,
+        "app_users_json": USER_LOAD_STATUS,
+        "total_users": len(users),
+        "users": users,
+    }
 
 
 @app.get("/password-policy")
