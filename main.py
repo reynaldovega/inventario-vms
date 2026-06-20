@@ -1126,11 +1126,15 @@ def inventory_sheet_score(df: pd.DataFrame) -> int:
     raw_columns = [clean_value(col) for col in df.columns]
     header_keys = [normalize_header_key(col) for col in raw_columns]
     score = 0
-    if len(header_keys) > 28 and header_keys[27] == "solicitante":
+    if len(header_keys) > 27 and header_keys[27] in {"solicitante", "solicitando"}:
         score += 20
-    if len(header_keys) > 28 and header_keys[28] in {"cargo", "cargo2", "cargoactual"}:
+    if len(header_keys) > 28 and header_keys[28] == "motivoasignacion":
+        score += 20
+    if len(header_keys) > 29 and header_keys[29] in {"cargo", "cargo2", "cargoactual"}:
         score += 30
-    if len(header_keys) > 29 and header_keys[29] in {"jefeinmediato", "jefe"}:
+    elif len(header_keys) > 28 and header_keys[28] in {"cargo", "cargo2", "cargoactual"}:
+        score += 30
+    if any(key in {"jefeinmediato", "jefe"} for key in header_keys[28:31]):
         score += 20
     if "dni" in header_keys:
         score += 8
@@ -1171,16 +1175,31 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
     processed["fecha_asignacion"] = format_date(safe_col(raw, 25))
     processed["modelo_seguro"] = safe_col(raw, 26).map(clean_value)
     header_keys = [normalize_header_key(col) for col in raw.columns]
-    has_solicitante_column = normalize_header_key("SOLICITANTE") in header_keys
-    has_cargo_ac_column = len(header_keys) > 28 and header_keys[28] in {"cargo", "cargo2", "cargoactual"}
-    if has_solicitante_column or has_cargo_ac_column:
-        processed["solicitante"] = safe_col(raw, 27).map(clean_value)
-        processed["cargo2_ab"] = safe_col(raw, 28).map(clean_value)
-        processed["jefe_inmediato"] = safe_col(raw, 29).map(clean_value)
-    else:
-        processed["solicitante"] = pd.Series([""] * len(raw), index=raw.index, dtype="object")
-        processed["cargo2_ab"] = get_series_by_header_alias_or_index(raw, ["CARGO2", "CARGO ACTUAL", "CARGO"], 27).map(clean_value)
-        processed["jefe_inmediato"] = get_series_by_header_alias_or_index(raw, ["JEFE INMEDIATO", "JEFEINMEDIATO"], 28).map(clean_value)
+    new_layout = "motivoasignacion" in header_keys
+
+    def inventory_field(aliases: list[str], fallback_index: int) -> pd.Series:
+        alias_keys = {normalize_header_key(alias) for alias in aliases}
+        if alias_keys.intersection(header_keys):
+            return get_series_by_header_alias(raw, aliases)
+        return safe_col(raw, fallback_index)
+
+    has_solicitando = any(key in {"solicitando", "solicitante"} for key in header_keys)
+    processed["solicitante"] = (
+        inventory_field(["SOLICITANDO", "SOLICITANTE"], 27).map(clean_value)
+        if has_solicitando
+        else pd.Series([""] * len(raw), index=raw.index, dtype="object")
+    )
+    processed["motivo_asignacion"] = (
+        inventory_field(["MOTIVO ASIGNACION", "MOTIVO DE ASIGNACION"], 28).map(clean_value)
+        if new_layout
+        else pd.Series([""] * len(raw), index=raw.index, dtype="object")
+    )
+    processed["cargo2_ab"] = inventory_field(
+        ["CARGO2", "CARGO ACTUAL", "CARGO"], 29 if new_layout else 27
+    ).map(clean_value)
+    processed["jefe_inmediato"] = inventory_field(
+        ["JEFE INMEDIATO", "JEFEINMEDIATO"], 30 if new_layout else 28
+    ).map(clean_value)
 
     processed["nombre_completo"] = compact_name(
         [
@@ -1227,6 +1246,7 @@ def procesar_df(df: pd.DataFrame) -> pd.DataFrame:
                 "centro_costo",
                 "cargo_n",
                 "solicitante",
+                "motivo_asignacion",
                 "cargo2_ab",
                 "jefe_inmediato",
                 "estado",
@@ -1525,7 +1545,7 @@ def build_vms_dashboard_rows() -> tuple[pd.DataFrame, str, int]:
     assigned["_assigned_evidence"] = "SI"
 
     merged = infra.merge(
-        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo_n", "tipo_entorno", "solicitante", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
+        assigned[["ip_norm", "dni", "anexo", "nombre_completo", "area", "centro_costo", "cargo_n", "tipo_entorno", "solicitante", "motivo_asignacion", "cargo2_ab", "jefe_inmediato", "hostname", "ticket", "so", "search_blob", "_assigned_evidence"]],
         on="ip_norm",
         how="left",
     ).fillna("")
@@ -2055,6 +2075,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
                 "centro_costo",
                 "cargo_n",
                 "solicitante",
+                "motivo_asignacion",
                 "cargo2_ab",
                 "jefe_inmediato",
                 "fecha_conexion",
@@ -2078,6 +2099,7 @@ def build_remote_assignments_export(df: pd.DataFrame) -> pd.DataFrame:
             "centro_costo": scoped["centro_costo"],
             "cargo_n": scoped["cargo_n"] if "cargo_n" in scoped else "",
             "solicitante": scoped["solicitante"] if "solicitante" in scoped else "",
+            "motivo_asignacion": scoped["motivo_asignacion"] if "motivo_asignacion" in scoped else "",
             "cargo2_ab": scoped["cargo2_ab"],
             "jefe_inmediato": scoped["jefe_inmediato"] if "jefe_inmediato" in scoped else "",
             "fecha_conexion": scoped["fecha_conexion"],
@@ -2105,6 +2127,7 @@ def build_standard_export(df: pd.DataFrame) -> pd.DataFrame:
             "centro_costo": scoped["centro_costo"] if "centro_costo" in scoped else "",
             "cargo_n": scoped["cargo_n"] if "cargo_n" in scoped else "",
             "solicitante": scoped["solicitante"] if "solicitante" in scoped else "",
+            "motivo_asignacion": scoped["motivo_asignacion"] if "motivo_asignacion" in scoped else "",
             "cargo2_ab": scoped["cargo2_ab"] if "cargo2_ab" in scoped else "",
             "jefe_inmediato": scoped["jefe_inmediato"] if "jefe_inmediato" in scoped else "",
             "fecha_conexion": scoped["fecha_conexion"] if "fecha_conexion" in scoped else "",
@@ -2132,6 +2155,7 @@ def build_vms_detail_export(df: pd.DataFrame) -> pd.DataFrame:
         "centro_costo",
         "cargo_n",
         "solicitante",
+        "motivo_asignacion",
         "cargo2_ab",
         "jefe_inmediato",
         "hostname_infra",
@@ -3286,6 +3310,7 @@ def meta():
             "area",
             "centro_costo",
             "solicitante",
+            "motivo_asignacion",
             "cargo2_ab",
             "jefe_inmediato",
             "fecha_conexion",

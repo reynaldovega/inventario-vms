@@ -2348,7 +2348,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const headers = [
-        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo solicitud", "Solicitante", "Cargo actual", "Jefe inmediato", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
+        "Estado", "TS/VMS", "Arquitectura", "Anexos", "DNI", "Nombre", "IP", "Hostname", "Ticket", "Area", "Centro de costo", "Cargo solicitud", "Solicitando", "Motivo asignacion", "Cargo actual", "Jefe inmediato", "Fecha conexion", "Fecha asignacion", "Modelo seguro"
       ];
 
       const head = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>`;
@@ -2367,6 +2367,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.centro_costo || "-"}</td>
           <td>${item.cargo_n || "-"}</td>
           <td>${item.solicitante || "-"}</td>
+          <td>${item.motivo_asignacion || "-"}</td>
           <td>${item.cargo2_ab || "-"}</td>
           <td>${item.jefe_inmediato || "-"}</td>
           <td>${item.fecha_conexion || "-"}</td>
@@ -3060,7 +3061,7 @@ document.addEventListener("DOMContentLoaded", () => {
         table.innerHTML = `<tr><td class="empty">No hay IPs asignadas para mostrar.</td></tr>`;
         return;
       }
-      const headers = ["IP", "Tipo", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo solicitud", "Solicitante", "Cargo actual", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
+      const headers = ["IP", "Tipo", "Anexos", "DNI", "Nombre", "Area", "Centro costo", "Cargo solicitud", "Solicitando", "Motivo asignacion", "Cargo actual", "Jefe inmediato", "Hostname infra", "Hostname inventario", "SO", "Fecha entrega"];
       table.innerHTML = `<tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr>` + asignadas.map(item => `
         <tr>
           <td>${item.ip || "-"}</td>
@@ -3072,6 +3073,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${item.centro_costo || "-"}</td>
           <td>${item.cargo_n || "-"}</td>
           <td>${item.solicitante || "-"}</td>
+          <td>${item.motivo_asignacion || "-"}</td>
           <td>${item.cargo2_ab || "-"}</td>
           <td>${item.jefe_inmediato || "-"}</td>
           <td>${item.hostname_infra || "-"}</td>
